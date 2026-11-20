@@ -1,14 +1,16 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
-use inquire::{Confirm, MultiSelect};
-use std::fs::{remove_file, rename, OpenOptions};
+use inquire::{required, Confirm, MultiSelect, Text};
+use serde_json::Value;
+use std::fs::{OpenOptions, remove_file, rename};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
+use ureq::Agent;
 
 pub fn print(msg: &str) {
     println!("\n{}", format!("{msg}").bold());
@@ -28,6 +30,25 @@ pub fn prompt_confirm(msg: &str) -> Result<bool> {
 
 pub fn prompt_multiselect(msg: &str, options: Vec<String>) -> Result<Vec<String>> {
     Ok(MultiSelect::new(msg, options).prompt()?)
+}
+
+pub fn prompt_text(msg: &str, default: Option<&str>) -> Result<String> {
+    let mut prompt = Text::new(msg).with_validator(required!());
+    if let Some(d) = default.filter(|d| !d.is_empty()) {
+        prompt = prompt.with_default(d);
+    }
+    Ok(prompt.prompt()?.trim().to_string())
+}
+
+pub fn prompt_instruction(lines: &[&str]) -> Result<()> {
+    println!("\n{}", "[manual]".cyan());
+    for line in lines {
+        println!("      {line}");
+    }
+    if !prompt_confirm("Done?")? {
+        bail!("stopped; re-run the same command once this step is done")
+    }
+    Ok(())
 }
 
 pub fn check_cmd(cmd: &str) -> Result<()> {
@@ -115,4 +136,21 @@ pub fn write_atomic(path: &Path, contents: &str) -> Result<()> {
 
     rename(&tmp, path).with_context(|| format!("can't replace {}", path.display()))?;
     Ok(())
+}
+
+pub fn gh_api(path: &str) -> Result<Value> {
+    let agent: Agent = Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(15)))
+        .build()
+        .into();
+    let url = format!("https://api.github.com{path}");
+    let value = agent
+        .get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "kafes")
+        .call()
+        .with_context(|| format!("GET {url} failed"))?
+        .body_mut()
+        .read_json::<Value>()?;
+    Ok(value)
 }

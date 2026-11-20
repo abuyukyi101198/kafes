@@ -17,7 +17,7 @@ pub struct GlobalConfig {
 #[derive(Serialize, Deserialize)]
 pub struct AppConfig {
     pub client_id: String,
-    pub installation_id: u64,
+    pub installation_id: Option<u64>,
     pub bot_name: String,
     pub bot_email: String,
 }
