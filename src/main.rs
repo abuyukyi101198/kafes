@@ -1,11 +1,14 @@
 pub mod config;
 pub mod utils;
 
-use crate::config::{AppConfig, GlobalConfig, load_global_config, save_global_config, valid_name};
+use crate::config::{
+    load_global_config, load_repo_config, save_global_config, save_repo_config, valid_name, AppConfig,
+    GlobalConfig, RepoConfig,
+};
 use crate::utils::{gh_api, prompt_instruction, prompt_text, write_atomic};
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::fs::{create_dir_all, read_to_string, remove_file};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use utils::{
     check_cmd, get_cmd_version, home_path, is_executable, print, print_info, prompt_confirm,
@@ -160,8 +163,101 @@ fn setup_providers() -> Result<()> {
 
 const PUSH_CFG_PATH: &str = ".config/kafes/push";
 
+fn add_repo() -> Result<()> {
+    let mut global = load_global_config()?;
+    let name = prompt_text("Repository name", None)?;
+    if !valid_name(&name) {
+        bail!("invalid repository name");
+    }
+    print(&format!("Adding repository {name}"));
+    let prev = load_repo_config(&name).ok();
+
+    let default_checkout = prev
+        .as_ref()
+        .map(|p| p.checkout.to_string_lossy().into_owned());
+    let checkout = prompt_text(
+        &format!(
+            "Absolute path of your local checkout of {}/{name}",
+            global.gh_user
+        ),
+        default_checkout.as_deref(),
+    )?;
+    let checkout = PathBuf::from(checkout);
+    if !checkout.is_absolute() {
+        bail!("checkout path must be absolute");
+    }
+
+    let repo = RepoConfig {
+        name,
+        checkout,
+        default_branch_before: prev.and_then(|p| p.default_branch_before),
+    };
+    let fork = repo.fork(&global);
+    let dir = repo.checkout.to_string_lossy();
+
+    run_cmd("git", &["-C", &dir, "rev-parse", "--git-dir"])
+        .with_context(|| format!("{dir} is not a Git checkout"))?;
+    let origin = run_cmd("git", &["-C", &dir, "remote", "get-url", "origin"])?;
+    let origin = origin.trim().trim_end_matches('/').trim_end_matches(".git");
+    if !(origin.ends_with(&format!("/{fork}")) || origin.ends_with(&format!(":{fork}"))) {
+        bail!("origin of {dir} is {origin}, not {fork}");
+    }
+    gh_api(&format!("/repos/{fork}")).with_context(|| format!("{fork} not found or not public"))?;
+
+    let kafes_fork = repo.kafes_fork(&global);
+    if gh_api(&format!("/repos/{kafes_fork}")).is_err() {
+        let url = format!("  https://github.com/{fork}/fork");
+        let owner = format!(
+            "  Owner: {}. Repository name: {} (keep it).",
+            global.kafes_owner, repo.name
+        );
+        prompt_instruction(&[
+            "Fork YOUR fork (not upstream) into the kafes organization:",
+            &url,
+            &owner,
+        ])?;
+    }
+    let info = gh_api(&format!("/repos/{kafes_fork}")).context("create the kafes fork first")?;
+    let parent = info["parent"]["full_name"].as_str().unwrap_or("nothing");
+    if parent != fork {
+        bail!("{kafes_fork} is a fork of {parent}, not of {fork}");
+    }
+    let url = format!("  https://github.com/{kafes_fork}/settings/actions");
+    prompt_instruction(&[
+        "Disable Actions on the kafes fork:",
+        &url,
+        "  Actions permissions: 'Disable actions'. Save.",
+    ])?;
+
+    let owner = &global.kafes_owner;
+    match global.app.installation_id {
+        None => {
+            let line = format!("  Repository access: Only select repositories -> {kafes_fork}");
+            prompt_instruction(&[
+                &format!("Install the App: App settings -> Install App -> Install on {owner}."),
+                &line,
+                "The browser then shows .../settings/installations/<number>.",
+            ])?;
+            let id = prompt_text("Installation ID", None)?;
+            global.app.installation_id =
+                Some(id.parse().context("the installation ID must be a number")?);
+            save_global_config(&global)?;
+        }
+        Some(id) => {
+            let url =
+                format!("  https://github.com/organizations/{owner}/settings/installations/{id}");
+            let line = format!("  Repository access: add {kafes_fork}. Save.");
+            prompt_instruction(&["Give the App access to the new fork:", &url, &line])?;
+        }
+    }
+
+    save_repo_config(&repo)?;
+    print_info(&format!("{} added", repo.name));
+    Ok(())
+}
+
 fn setup_org() -> Result<()> {
-    print("Setting up agent org...");
+    print("Setting up kafes org...");
     let prev = load_global_config().ok();
 
     let gh_user = prompt_text("GitHub username", prev.as_ref().map(|p| p.gh_user.as_str()))?;
@@ -205,7 +301,7 @@ fn setup_org() -> Result<()> {
         let pem = prompt_text("Path of the downloaded .pem", None)?;
         run_cmd("openssl", &["pkey", "-in", &pem, "-noout"]).context("not a private key")?;
         create_dir_all(home_path(PUSH_CFG_PATH)?)?;
-        write_atomic(&pem_dest, &read_to_string(&pem_dest)?)?;
+        write_atomic(&pem_dest, &read_to_string(&pem)?)?;
         remove_file(&pem)?;
         print_info(&format!(
             "key stored in {}; the download is deleted",
@@ -225,7 +321,7 @@ fn setup_org() -> Result<()> {
         .as_ref()
         .map(|p| p.app.bot_name.trim_end_matches("[bot]"));
     let slug = prompt_text("App slug (last part of the App's settings URL)", prev_slug)?;
-    let bot = gh_api(&format!("/users/{slug}/%5Bbot%5D")).context("no bot user; check the slug")?;
+    let bot = gh_api(&format!("/users/{slug}%5Bbot%5D")).context("no bot user; check the slug")?;
     let bot_name = bot["login"]
         .as_str()
         .context("bot has no login")?
