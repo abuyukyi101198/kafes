@@ -1,7 +1,10 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::{Confirm, MultiSelect};
+use std::fs::{remove_file, rename, OpenOptions};
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -95,4 +98,21 @@ pub fn is_executable(path: &Path) -> bool {
     std::fs::metadata(path)
         .map(|m| m.is_file() && (m.permissions().mode() & 0o111) != 0)
         .unwrap_or(false)
+}
+
+pub fn write_atomic(path: &Path, contents: &str) -> Result<()> {
+    let tmp = path.with_extension("tmp");
+    let _ = remove_file(&tmp);
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
+        .with_context(|| format!("can't create {}", tmp.display()))?;
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()?;
+
+    rename(&tmp, path).with_context(|| format!("can't replace {}", path.display()))?;
+    Ok(())
 }

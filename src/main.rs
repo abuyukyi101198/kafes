@@ -1,4 +1,5 @@
 pub mod utils;
+pub mod config;
 
 use anyhow::{Context, Result, bail};
 use std::fs::create_dir_all;
