@@ -3,7 +3,7 @@ base: ubuntu@24.04
 runtime: lxd-container
 sdks:
   - name: node
-    channel: 22/stable
+    channel: {{NODE_CHANNEL}}
     plugs:
       kafes-gateway:
         interface: tunnel

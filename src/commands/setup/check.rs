@@ -1,11 +1,12 @@
 use crate::config::{GlobalConfig, RepoConfig, save_repo_config};
-use crate::constants::{ACTIONS_APP_ID, SANDBOX_PATH};
+use crate::constants::ACTIONS_APP_ID;
 use crate::git::{anon_fetch, git_stdin, manual_push, remote_sha};
 use crate::github::gh_api;
+use crate::profile::{check_path, load_profile};
 use crate::ui::{
     print, print_info, print_warning, prompt_confirm, prompt_instruction, prompt_text,
 };
-use crate::utils::{home_path, run_cmd};
+use crate::utils::{home_path, run_cmd, write_atomic_mode};
 use anyhow::{Context, Result, bail};
 use std::path::Path;
 
@@ -14,10 +15,10 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     let dir = repo.checkout.clone();
     print(&format!("Edit-rule check on {fork}"));
 
-    let src = home_path(SANDBOX_PATH)?.join("kafes-pr-check.yml");
-    if !src.is_file() {
-        bail!("{} missing; run kafes setup first", src.display());
-    }
+    // Rendered from the repository's profile, kept for you to read
+    let profile = load_profile(&repo.name)?;
+    let src = check_path(&repo.name)?;
+    write_atomic_mode(&src, &profile.check_workflow()?, 0o644)?;
     old_worktree_gone(&dir)?;
     let want = checks_commit(&dir, &src)?;
 
@@ -59,7 +60,11 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
                 }
                 Some(sha) if sha == want => print_info("kafes-checks already exists locally"),
                 Some(sha) => {
-                    bail!("a local kafes-checks at {sha} has other content; inspect or rename it")
+                    bail!(
+                        "a local kafes-checks at {sha} has other content; inspect it, and if kafes \
+                         made it for an earlier profile, delete it: git -C '{}' branch -D kafes-checks",
+                        dir.display()
+                    )
                 }
             }
             manual_push(
@@ -79,11 +84,33 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     if files.trim() != ".github/workflows/kafes-pr-check.yml" {
         bail!("{fork}'s kafes-checks holds more than the check workflow; inspect it");
     }
+    let mut remote = remote;
     if run_cmd("git", &["-C", &d, "diff", "--quiet", &remote, &want, "--"]).is_err() {
         print_warning(&format!(
-            "{fork}'s kafes-checks differs from {}: review and update it",
+            "{fork}'s kafes-checks differs from {}:",
             src.display()
         ));
+        let diff = run_cmd("git", &["-C", &d, "diff", &remote, &want, "--"])?;
+        for line in diff.lines() {
+            println!("      {line}");
+        }
+        if prompt_confirm(&format!("Replace {fork}'s kafes-checks with this version?"))? {
+            // kafes-checks has no parent by design, so the update replaces it
+            manual_push(
+                repo,
+                &fork,
+                &want,
+                &format!("+{want}:refs/heads/kafes-checks"),
+                &format!(
+                    "Replace {fork}'s kafes-checks with the check for this profile (a force push)."
+                ),
+            )?;
+            remote = want.clone();
+        } else {
+            print_warning(&format!(
+                "{fork}'s kafes-checks keeps its current rules; kafes PRs are checked against those"
+            ));
+        }
     }
     print_info(&format!("kafes-checks is on {fork} at {}", &remote[..12]));
 

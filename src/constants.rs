@@ -33,5 +33,7 @@ pub const SETUP_WS: &str = include_str!("../assets/setup-workshop.sh");
 pub const PROXY_TS: &str = include_str!("../assets/kafes-push-proxy.ts");
 pub const CHECK_YML: &str = include_str!("../assets/kafes-pr-check.yml");
 
+pub const PRESETS: &[(&str, &str)] = &[("yarn", include_str!("../assets/profiles/yarn.toml"))];
+
 pub const STATE_PATH: &str = "kafes/sandbox/state";
 pub const WS_HOME: &str = "/home/workshop";

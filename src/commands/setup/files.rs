@@ -1,6 +1,4 @@
-use crate::constants::{
-    BUN_VERSION, CHECK_YML, DEV_YAML, OMP_VERSION, POLICY, PROMPT, PROXY_TS, SANDBOX_PATH, SETUP_WS,
-};
+use crate::constants::{BUN_VERSION, OMP_VERSION, POLICY, PROXY_TS, SANDBOX_PATH, SETUP_WS};
 use crate::ui::{print, print_info, print_warning, prompt_confirm};
 use crate::utils::{home_path, tmp_path, write_atomic_mode};
 use anyhow::{Context, Result, bail};
@@ -33,19 +31,21 @@ fn write_trusted_files() -> Result<()> {
     let setup_ws = SETUP_WS
         .replace("{{BUN_VERSION}}", BUN_VERSION)
         .replace("{{OMP_VERSION}}", OMP_VERSION);
+    // An unfilled placeholder would only fail later, inside the workshop
+    if setup_ws.contains("{{") {
+        bail!("setup-workshop.sh has an unfilled {{{{...}}}} placeholder");
+    }
 
-    let files: [(&str, &str, u32); 7] = [
-        ("dev.yaml", DEV_YAML, 0o644),
+    // dev.yaml, the prompt and the check workflow are rendered per repository from its profile
+    let files: [(&str, &str, u32); 4] = [
         ("setup-workshop.sh", &setup_ws, 0o644),
         ("kafes-policy.yml", POLICY, 0o644),
-        ("kafes-prompt.md", PROMPT, 0o644),
         (
             "bunfig.toml",
             "# Intentionally no Bun settings or preloads.\n",
             0o644,
         ),
         ("kafes-push-proxy.ts", PROXY_TS, 0o644),
-        ("kafes-pr-check.yml", CHECK_YML, 0o644),
     ];
     for (name, text, mode) in files {
         write_atomic_mode(&sandbox.join(name), text, mode)?;

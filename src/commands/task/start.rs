@@ -2,6 +2,7 @@ use crate::agent::{push_agent_files, push_credentials};
 use crate::config::{load_global_config, load_repo_config};
 use crate::guard::FailureHint;
 use crate::network::{bridge_state, check_workshop_network};
+use crate::profile::load_profile;
 use crate::services::start_services;
 use crate::settings::{prepare_task_settings, save_task_settings};
 use crate::state::{Want, require_task, save_active, task_repo};
@@ -13,7 +14,9 @@ use std::time::Duration;
 pub fn cmd_task_start(task: &str) -> Result<()> {
     let mut state = require_task(task, Want::Stopped)?;
     let global = load_global_config()?;
-    let repo = load_repo_config(&task_repo(task)?)?;
+    let repo_name = task_repo(task)?;
+    let repo = load_repo_config(&repo_name)?;
+    let profile = load_profile(&repo_name)?;
     let subnet = bridge_state(&global)?;
     let hint = FailureHint::arm(&format!("kafes task stop {task}"));
 
@@ -23,7 +26,7 @@ pub fn cmd_task_start(task: &str) -> Result<()> {
     save_task_settings(&settings)?;
 
     print("Start the task workshop");
-    reset_definition(task)?;
+    reset_definition(task, &profile.dev_yaml())?;
     ws(task, &["start", "dev"])?;
     state.stopped = false;
     save_active(&state)?;

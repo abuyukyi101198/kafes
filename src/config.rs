@@ -50,7 +50,7 @@ pub fn valid_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
-const REPOS_PATH: &str = "kafes/sandbox/repos";
+pub const REPOS_PATH: &str = "kafes/sandbox/repos";
 
 #[derive(Serialize, Deserialize)]
 pub struct RepoConfig {
@@ -113,6 +113,7 @@ pub fn list_repos() -> Result<Vec<String>> {
 }
 
 pub fn delete_repo_config(name: &str) -> Result<()> {
+    crate::profile::delete_repo_dir(name)?;
     let path = repo_path(name)?;
     std::fs::remove_file(&path).with_context(|| format!("can't remove {}", path.display()))
 }

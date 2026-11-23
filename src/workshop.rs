@@ -1,7 +1,7 @@
-use crate::constants::{SANDBOX_PATH, TASKS_PATH};
+use crate::constants::TASKS_PATH;
 use crate::guard::Interactive;
 use crate::ui::{print, print_info};
-use crate::utils::home_path;
+use crate::utils::{home_path, write_atomic};
 use anyhow::{Context, Result, bail, ensure};
 use std::fs;
 use std::io::Write;
@@ -127,7 +127,7 @@ pub fn connections_ok(task: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn reset_definition(task: &str) -> Result<()> {
+pub fn reset_definition(task: &str, dev_yaml: &str) -> Result<()> {
     let dir = home_path(TASKS_PATH)?.join(task).join(".workshop");
     let meta = fs::symlink_metadata(&dir).with_context(|| format!("{} missing", dir.display()))?;
     ensure!(
@@ -137,8 +137,8 @@ pub fn reset_definition(task: &str) -> Result<()> {
     );
     let dev = dir.join("dev.yaml");
     let _ = fs::remove_file(&dev);
-    fs::copy(home_path(SANDBOX_PATH)?.join("dev.yaml"), &dev)?;
-    Ok(())
+    // Never follows a planted link: the temp file is created exclusively, then renamed over
+    write_atomic(&dev, dev_yaml)
 }
 
 pub fn open_shell(task: &str) -> Result<()> {

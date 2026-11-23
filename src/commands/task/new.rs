@@ -5,12 +5,13 @@ use crate::constants::{SANDBOX_PATH, TASKS_PATH, WS_HOME};
 use crate::git::{anon_fetch, manual_push, remote_sha};
 use crate::guard::FailureHint;
 use crate::network::{bridge_state, check_workshop_network};
+use crate::profile::load_profile;
 use crate::services::start_services;
 use crate::settings::{prepare_task_settings, save_task_settings};
 use crate::state::{TaskRecord, TaskState, load_active, load_record, save_active, save_record};
 use crate::ui::{print, print_info, prompt_confirm};
 use crate::utils::{home_path, run_cmd};
-use crate::workshop::{cache_plugs, open_shell, ws, ws_exec_stdin};
+use crate::workshop::{cache_plugs, open_shell, reset_definition, ws, ws_exec_stdin};
 use anyhow::{Context, Result, bail, ensure};
 use std::fs;
 
@@ -55,6 +56,8 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
     .with_context(|| format!("'{task}' can't be a branch name; pass another with --name"))?;
     let global = load_global_config()?;
     let repo = load_repo_config(repo_name)?;
+    // Before anything starts: a broken profile must not leave a half-made task
+    let profile = load_profile(repo_name)?;
     if let Some(active) = load_active()? {
         bail!("task {} is still active; end it first", active.name);
     }
@@ -113,12 +116,8 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
     let settings = prepare_task_settings()?;
     save_task_settings(&settings)?;
     print("Launch the task workshop");
-    let def_dir = task_dir.join(".workshop");
-    fs::create_dir_all(&def_dir)?;
-    fs::copy(
-        home_path(SANDBOX_PATH)?.join("dev.yaml"),
-        def_dir.join("dev.yaml"),
-    )?;
+    fs::create_dir_all(task_dir.join(".workshop"))?;
+    reset_definition(task, &profile.dev_yaml())?;
     ws(task, &["launch", "dev"])?;
     print_info("reading the workshop's connections");
     for plug in cache_plugs(task)? {
@@ -144,6 +143,26 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
     let script = fs::read_to_string(home_path(SANDBOX_PATH)?.join("setup-workshop.sh"))?;
     ws_exec_stdin(task, "cat > /tmp/setup-workshop.sh", &script)?;
     ws(task, &["exec", "dev", "--", "sh", "/tmp/setup-workshop.sh"])?;
+    let tools = &profile.workshop;
+    if !tools.apt.is_empty() {
+        print_info(&format!("apt packages: {}", tools.apt.join(" ")));
+        let mut args = vec![
+            "exec",
+            "dev",
+            "--",
+            "sudo",
+            "apt-get",
+            "install",
+            "-y",
+            "--no-install-recommends",
+        ];
+        args.extend(tools.apt.iter().map(String::as_str));
+        ws(task, &args)?;
+    }
+    for step in &tools.setup {
+        print_info(&format!("$ {step}"));
+        ws(task, &["exec", "dev", "--", "sh", "-c", step])?;
+    }
     push_agent_files(task, &repo.name)?;
     push_credentials(task, &settings.providers)?;
 
@@ -167,20 +186,23 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
     git(&["remote", "add", "kafes", &remote])?;
     git(&["config", "user.name", &global.app.bot_name])?;
     git(&["config", "user.email", &global.app.bot_email])?;
-    let install = format!("cd '{src}' && ~/.local/bin/yarn install --frozen-lockfile");
-    ws(
-        task,
-        &[
-            "exec",
-            "--env",
-            "CYPRESS_INSTALL_BINARY=0",
-            "dev",
-            "--",
-            "sh",
-            "-c",
-            &install,
-        ],
-    )?;
+    if let Some(install) = &profile.project.install {
+        print("Install the project");
+        print_info(&format!("$ {install}"));
+        let script = format!("cd '{src}' && {install}");
+        let env: Vec<String> = profile
+            .project
+            .env
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        let mut args = vec!["exec"];
+        for e in &env {
+            args.extend(["--env", e.as_str()]);
+        }
+        args.extend(["dev", "--", "sh", "-c", script.as_str()]);
+        ws(task, &args)?;
+    }
     hint.disarm();
 
     print(&format!("Task {task} is ready"));

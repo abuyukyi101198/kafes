@@ -1,5 +1,6 @@
-//! `kafes repo add [repo]`: add a repository under the kafes organization.
+//! `kafes repo add [repo] [--profile <preset>]`: add a repository under the kafes organization.
 
+use crate::commands::repo::profile::choose_profile;
 use crate::commands::setup::{setup_check, setup_verify};
 use crate::config::{
     RepoConfig, load_global_config, load_repo_config, save_global_config, save_repo_config,
@@ -11,22 +12,22 @@ use crate::utils::run_cmd;
 use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 
-pub fn cmd_add(name: Option<String>) -> Result<()> {
+pub fn cmd_add(name: Option<String>, profile: Option<String>) -> Result<()> {
     load_global_config().context("run kafes setup first")?;
-    repo_stages(name)?;
+    repo_stages(name, profile)?;
     print("Repository added.");
     Ok(())
 }
 
-pub fn repo_stages(name: Option<String>) -> Result<()> {
-    let mut repo = add_repo(name)?;
+pub fn repo_stages(name: Option<String>, profile: Option<String>) -> Result<()> {
+    let mut repo = add_repo(name, profile)?;
     // Loaded after add_repo, which may have saved the installation ID
     let global = load_global_config()?;
     setup_check(&global, &mut repo)?;
     setup_verify(&global, &repo)
 }
 
-fn add_repo(name: Option<String>) -> Result<RepoConfig> {
+fn add_repo(name: Option<String>, profile: Option<String>) -> Result<RepoConfig> {
     let mut global = load_global_config()?;
     let name = match name {
         Some(n) => n,
@@ -116,6 +117,9 @@ fn add_repo(name: Option<String>) -> Result<RepoConfig> {
             prompt_instruction(&["Give the App access to the new fork:", &url, &line])?;
         }
     }
+
+    // Before the repo record, which is saved last
+    choose_profile(&repo.name, profile)?;
 
     save_repo_config(&repo)?;
     print_info(&format!("{} added", repo.name));

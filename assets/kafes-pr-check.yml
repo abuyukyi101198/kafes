@@ -5,8 +5,9 @@
 # code, and posts a `kafes-pr-check` status on the PR's head commit. A branch
 # ruleset on kafes-base/** requires that status.
 #
-# Paths are an allowlist: a change outside ALLOWED_PATHS fails, and a change
-# inside REVIEW_CLOSELY passes but is listed for close review.
+# Paths are an allowlist from the repository's kafes profile: a change outside
+# its allowed paths fails, and a change inside review_closely passes but is
+# listed for close review. Dotfiles are rejected whatever the profile says.
 #
 # Repository variables (Settings > Secrets and variables > Actions > Variables):
 #   KAFES_FORK   <kafes-owner>/<repo>
@@ -54,29 +55,11 @@ jobs:
           const MAX_FILE_CHANGES = 1000;
           const MAX_LINE_LENGTH = 500;
 
-          // Allowlist. Anything outside it needs a human-authored commit.
-          // Tooling configs, scripts and dependency files are deliberately
-          // absent, so a new vite.config.js, bunfig.toml or postcss.config.*
-          // fails instead of slipping in.
-          const ALLOWED_PATHS = [
-            /^src\/.+\.(ts|tsx|scss)$/,
-            /^cypress\/e2e\/.+\.(ts|feature)$/,
-            /^cypress\/support\/.+\.ts$/,
-            /^docs\/.+\.md$/,
-          ];
-          // Never allowed, even inside the allowlist.
-          const REJECTED_PATHS = [
-            /^src\/app\/apiclient\//, // generated (yarn generate-api-client)
-            /(^|\/)\.[^/]*($|\/)/, // any dotfile or dot-directory
-          ];
-
-          // Allowed, but loaded by every test run or read by agents.
-          const REVIEW_CLOSELY = [
-            /^src\/(setupTests\.ts|testing\/)/,
-            /(^|\/)__mocks__\//,
-            /^cypress\/support\//,
-            /^docs\/standards\//,
-          ];
+          // Path rules from the repository's kafes profile, as JSON. They are
+          // compiled inside check(), so a bad pattern fails the check.
+          const RULES = {{KAFES_RULES}};
+          // Never allowed, whatever the profile says: any dotfile or dot-directory.
+          const ALWAYS_REJECTED = [/(^|\/)\.[^/]*($|\/)/];
 
           const SAFE_PATH = /^[A-Za-z0-9._@+,\[\]\/-]+$/;
           // Controls (except tab), bidi controls, zero-width and invisible
@@ -118,6 +101,10 @@ jobs:
           async function check() {
             const failures = [];
             const review = [];
+            const compile = (list) => list.map((source) => new RegExp(source));
+            const ALLOWED_PATHS = compile(RULES.allowed);
+            const REJECTED_PATHS = [...compile(RULES.rejected), ...ALWAYS_REJECTED];
+            const REVIEW_CLOSELY = compile(RULES.review_closely);
             if (!env.KAFES_FORK || !env.KAFES_EMAIL) {
               return { failures: ["KAFES_FORK or KAFES_EMAIL variable not set"], review };
             }

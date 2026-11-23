@@ -1,0 +1,43 @@
+# kafes repository profile. `kafes repo add` copies it to
+# ~/kafes/sandbox/repos/<repo>/profile.toml; change that copy with
+# `kafes repo edit <repo>`. Updating kafes never changes a saved copy.
+preset = "yarn"
+preset_version = 1
+description = "Vite, Vitest and Cypress on Yarn 1"
+
+[workshop]
+# The node SDK always stays: it carries the kafes tunnel plugs
+node = "22/stable"
+# apt-get install inside the workshop; native npm modules build with these
+apt = ["build-essential", "python3"]
+# Run in order inside the workshop with sh -c, as the workshop user
+setup = ['npm install --global --prefix "$HOME/.local" yarn@1.22.22']
+
+[project]
+# Run with sh -c in the clone, after the setup steps
+install = "~/.local/bin/yarn install --frozen-lockfile"
+env = { CYPRESS_INSTALL_BINARY = "0" }
+test_hint = "For validation, run the smallest relevant Vitest selection with --run. Don't start watch mode. Run the full suite, builds or lint only when asked."
+
+[rules]
+# JavaScript regular expressions over repository paths. Tooling configs,
+# scripts and dependency files are deliberately absent, so changing them needs
+# a human-authored commit. The check always also rejects dotfiles, binaries,
+# symlinks, executables, submodules and unusual path characters.
+allowed = [
+    '^src/.+\.(ts|tsx|scss)$',
+    '^cypress/e2e/.+\.(ts|feature)$',
+    '^cypress/support/.+\.ts$',
+    '^docs/.+\.md$',
+]
+rejected = [
+    '^src/app/apiclient/', # generated (yarn generate-api-client)
+]
+# Allowed, but loaded by every test run or read by agents
+review_closely = [
+    '^src/(setupTests\.ts|testing/)',
+    '(^|/)__mocks__/',
+    '^cypress/support/',
+    '^docs/standards/',
+]
+

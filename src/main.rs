@@ -6,6 +6,7 @@ mod git;
 mod github;
 mod guard;
 mod network;
+mod profile;
 mod services;
 mod settings;
 mod state;
@@ -50,7 +51,21 @@ enum TaskCmd {
 #[derive(Subcommand)]
 enum RepoCmd {
     /// Add a repository under the kafes organization
-    Add { repo: Option<String> },
+    Add {
+        repo: Option<String>,
+        /// Built-in profile to start from (keeps a saved profile if omitted)
+        #[arg(long)]
+        profile: Option<String>,
+    },
+    /// Edit a repository's profile in $EDITOR, or replace it with a preset
+    Edit {
+        repo: String,
+        /// Replace the profile with this built-in preset instead of editing it
+        #[arg(long)]
+        profile: Option<String>,
+    },
+    /// Show a repository's effective profile and edit rules
+    Show { repo: String },
     /// Remove kafes from one repository
     Remove { repo: String },
 }
@@ -88,7 +103,9 @@ fn main() -> ExitCode {
     let result = check_cwd().and_then(|()| match cli.command {
         Cmd::Setup => commands::setup::cmd_setup(),
         Cmd::Repo { cmd } => match cmd {
-            RepoCmd::Add { repo } => commands::repo::add::cmd_add(repo),
+            RepoCmd::Add { repo, profile } => commands::repo::add::cmd_add(repo, profile),
+            RepoCmd::Edit { repo, profile } => commands::repo::profile::cmd_edit(&repo, profile),
+            RepoCmd::Show { repo } => commands::repo::profile::cmd_show(&repo),
             RepoCmd::Remove { repo } => commands::repo::remove::cmd_remove(&repo),
         },
         Cmd::Task { cmd } => match cmd {

@@ -1,5 +1,6 @@
 use crate::constants::GATEWAY_CFG_PATH;
 use crate::constants::{PUSH_CFG_PATH, SANDBOX_PATH, STATE_PATH, WS_HOME};
+use crate::profile::load_profile;
 use crate::ui::print_info;
 use crate::utils::{home_path, run_cmd, write_atomic};
 use crate::workshop::{ws, ws_exec_stdin, ws_output};
@@ -32,10 +33,8 @@ pub fn push_agent_files(task: &str, repo: &str) -> Result<()> {
             "cat > ~/.config/kafes-policy.yml",
             read_to_string(sandbox.join("kafes-policy.yml"))?,
         ),
-        (
-            "cat > ~/.config/kafes-prompt.md",
-            read_to_string(sandbox.join("kafes-prompt.md"))?,
-        ),
+        // From the repository's profile, the same rules the check enforces
+        ("cat > ~/.config/kafes-prompt.md", load_profile(repo)?.prompt()),
         (
             "cat > ~/.omp/agent/models.yml",
             read_to_string(state.join("task-models.yml"))?,

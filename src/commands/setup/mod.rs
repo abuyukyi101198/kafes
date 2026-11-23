@@ -21,7 +21,7 @@ pub fn cmd_setup() -> Result<()> {
     org::setup_org()?;
     files::setup_proxy_files()?;
     acl::setup_acl()?;
-    repo_stages(None)?;
+    repo_stages(None, None)?;
     print("Setup complete. Start a task with:");
     print_info("kafes task new <repo>/<feature-branch> [--name <task>]");
     Ok(())

@@ -3,7 +3,7 @@
 use anyhow::{Result, bail};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
-use inquire::{Confirm, MultiSelect, Text, required};
+use inquire::{Confirm, MultiSelect, Select, Text, required};
 use std::time::Duration;
 
 pub fn print(msg: &str) {
@@ -24,6 +24,10 @@ pub fn prompt_confirm(msg: &str) -> Result<bool> {
 
 pub fn prompt_multiselect(msg: &str, options: Vec<String>) -> Result<Vec<String>> {
     Ok(MultiSelect::new(msg, options).prompt()?)
+}
+
+pub fn prompt_select(msg: &str, options: Vec<String>) -> Result<String> {
+    Ok(Select::new(msg, options).prompt()?)
 }
 
 pub fn prompt_text(msg: &str, default: Option<&str>) -> Result<String> {
