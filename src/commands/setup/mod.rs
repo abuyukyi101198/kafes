@@ -8,7 +8,7 @@ mod providers;
 mod tools;
 mod verify;
 
-pub use check::setup_check;
+pub use check::{setup_check, rules_ok};
 pub use verify::setup_verify;
 
 use crate::commands::add::repo_stages;

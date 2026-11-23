@@ -198,7 +198,7 @@ fn checks_commit(dir: &Path, workflow: &Path) -> Result<String> {
     )
 }
 
-fn rules_ok(fork: &str) -> bool {
+pub fn rules_ok(fork: &str) -> bool {
     let Ok(rules) = gh_api(&format!(
         "/repos/{fork}/rules/branches/kafes-base%2Fsetup-check"
     )) else {

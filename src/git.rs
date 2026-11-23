@@ -100,3 +100,21 @@ pub fn manual_push(
         print_warning(&format!("{fork}'s {branch} is not at {sha} yet"));
     }
 }
+
+pub fn kafes_refs(repo: &str) -> Result<Vec<String>> {
+    let url = format!("https://github.com/{repo}.git");
+    let out = git_anon(
+        None,
+        &[
+            "ls-remote",
+            &url,
+            "refs/heads/kafes-base/*",
+            "refs/heads/kafes-checks",
+        ],
+    )?;
+    Ok(out
+        .lines()
+        .filter_map(|l| l.split_whitespace().nth(1))
+        .map(str::to_string)
+        .collect())
+}

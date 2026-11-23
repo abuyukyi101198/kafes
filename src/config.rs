@@ -2,6 +2,7 @@ use crate::utils::{home_path, write_atomic};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::fs::{create_dir_all, read_to_string};
+use std::io::ErrorKind;
 use std::path::PathBuf;
 
 const CONFIG_PATH: &str = "kafes/sandbox/config.toml";
@@ -86,4 +87,44 @@ pub fn save_repo_config(cfg: &RepoConfig) -> Result<()> {
     let path = repo_path(&cfg.name)?;
     create_dir_all(home_path(REPOS_PATH)?)?;
     write_atomic(&path, &toml::to_string(cfg)?)
+}
+
+pub fn list_repos() -> Result<Vec<String>> {
+    let dir = home_path(REPOS_PATH)?;
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        if path.extension().is_some_and(|x| x == "toml") {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                if valid_name(stem) {
+                    names.push(stem.to_string());
+                }
+            }
+        }
+    }
+
+    names.sort();
+    Ok(names)
+}
+
+pub fn pick_repo(name: Option<String>) -> Result<RepoConfig> {
+    let name = match name {
+        Some(n) => n,
+        None => match list_repos()?.as_slice() {
+            [only] => only.clone(),
+            [] => bail!("no repositories; run kafes add"),
+            many => bail!("several repositories; pass --repo <{}>", many.join("|")),
+        },
+    };
+    load_repo_config(&name)
+}
+
+pub fn delete_repo_config(name: &str) -> Result<()> {
+    let path = repo_path(name)?;
+    std::fs::remove_file(&path).with_context(|| format!("can't remove {}", path.display()))
 }

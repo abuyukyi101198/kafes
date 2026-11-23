@@ -16,3 +16,4 @@ ureq = { version = "3.5.2", features = ["json"] }
 clap = { version = "4", features = ["derive"] }
 libc = "0.2.191"
 ctrlc = { version = "3.5.3", features = ["termination"] }
+sha2 = "0.11.1"

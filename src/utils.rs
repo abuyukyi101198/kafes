@@ -1,19 +1,23 @@
 //! Process and filesystem helpers.
 
-use std::env;
+use crate::constants::TASKS_PATH;
 use anyhow::{Context, Result, bail, ensure};
+use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use crate::constants::TASKS_PATH;
 
 pub fn check_cwd() -> Result<()> {
     let tasks = home_path(TASKS_PATH)?;
     let tasks = tasks.canonicalize().unwrap_or(tasks);
     let cwd = env::current_dir()?;
-    ensure!(!cwd.starts_with(&tasks), "never run kafes from inside {}", tasks.display());
+    ensure!(
+        !cwd.starts_with(&tasks),
+        "never run kafes from inside {}",
+        tasks.display()
+    );
     Ok(())
 }
 
@@ -23,7 +27,15 @@ pub fn check_cmd(cmd: &str) -> Result<()> {
 }
 
 pub fn run_cmd(cmd: &str, args: &[&str]) -> Result<String> {
-    let out = Command::new(cmd)
+    run_cmd_in(None, cmd, args)
+}
+
+pub fn run_cmd_in(dir: Option<&Path>, cmd: &str, args: &[&str]) -> Result<String> {
+    let mut c = Command::new(cmd);
+    if let Some(d) = dir {
+        c.current_dir(d);
+    }
+    let out = c
         .args(args)
         .output()
         .with_context(|| format!("failed to start {cmd}"))?;
