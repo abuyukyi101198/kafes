@@ -5,7 +5,10 @@ use crate::config::{
     AppConfig, GlobalConfig, NetworkConfig, RepoConfig, load_global_config, load_repo_config,
     save_global_config, save_repo_config, valid_name,
 };
-use crate::utils::{gh_api, prompt_instruction, prompt_text, write_atomic};
+use crate::utils::{
+    anon_fetch, bootstrap_status, checks_commit, gh_api, manual_push, print_warning,
+    prompt_instruction, prompt_text, remote_sha, rules_ok, write_atomic,
+};
 use anyhow::{Context, Result, bail};
 use std::fs::{create_dir_all, read_to_string, remove_file};
 use std::path::{Path, PathBuf};
@@ -419,9 +422,154 @@ fn setup_acl() -> Result<()> {
         )?;
     }
 
-    print_info(&format!("{ACL} attached to {bridge} (previous ACLs: '{acls_before}'"));
-    global.network = Some(NetworkConfig {bridge, acls_before});
+    print_info(&format!(
+        "{ACL} attached to {bridge} (previous ACLs: '{acls_before}'"
+    ));
+    global.network = Some(NetworkConfig {
+        bridge,
+        acls_before,
+    });
     save_global_config(&global)
+}
+
+fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
+    let fork = repo.fork(global);
+    let dir = repo.checkout.clone();
+    print(&format!("Edit-rule check on {fork}"));
+
+    let src = home_path(SANDBOX_PATH)?.join("kafes-pr-check.yml");
+    if !src.is_file() {
+        bail!("{} missing; run kafes setup first", src.display());
+    }
+    let mut want = checks_commit(&dir, &src)?;
+
+    let remote = match remote_sha(&fork, "kafes-checks")? {
+        Some(sha) => sha,
+        None => {
+            if !prompt_confirm(&format!(
+                "Have you read {}? It runs with a token that can write to your fork.",
+                src.display()
+            ))? {
+                bail!("read the workflow first");
+            }
+            let local = run_cmd(
+                "git",
+                &[
+                    "-C",
+                    &dir.to_string_lossy(),
+                    "rev-parse",
+                    "q",
+                    "--verify",
+                    "refs/heads/kafes-checks",
+                ],
+            )
+            .ok();
+            match local.as_deref().map(str::trim) {
+                None => {
+                    run_cmd(
+                        "git",
+                        &[
+                            "-C",
+                            &dir.to_string_lossy(),
+                            "update-ref",
+                            "refs/heads/kafes-checks",
+                            &want,
+                            "",
+                        ],
+                    )?;
+                    print_info("created local branch kafes-checks (nothing checked out)");
+                }
+                Some(sha) if sha == want => print_info("kafes-checks already exists locally"),
+                Some(sha) => {
+                    bail!("a local kafes-checks at {sha} has other content; inspect or rename it")
+                }
+            }
+            manual_push(
+                repo,
+                &fork,
+                &want,
+                "kafes-checks",
+                &format!("Publish the edit-rule check as {fork}'s kafes-checks branch."),
+            )?;
+            want.clone()
+        }
+    };
+
+    anon_fetch(&dir, &fork, "kafes-checks")?;
+    let d = dir.to_string_lossy();
+    let files = run_cmd("git", &["-C", &d, "ls-tree", "-r", "--name-only", &remote])?;
+    if files.trim() != ".github/workflows/kafes-pr-check.yml" {
+        bail!("{fork}'s kafes-checks holds more than the check workflow; inspect it");
+    }
+    if run_cmd("git", &["-C", &d, "diff", "--quiet", &remote, &want, "--"]).is_err() {
+        print_warning(&format!(
+            "{fork}'s kafes-checks differs from {}: review and update it",
+            src.display()
+        ));
+    }
+    print_info(&format!("kafes-checks is on {fork} at {}", &remote[..12]));
+
+    let default_branch = |f: &str| -> Result<String> {
+        Ok(gh_api(&format!("/repos/{f}"))?["default_branch"]
+            .as_str()
+            .unwrap_or("")
+            .to_string())
+    };
+    let current = default_branch(&fork)?;
+    if current != "kafes-checks" {
+        if repo.default_branch_before.is_none() {
+            repo.default_branch_before = Some(current.clone());
+            save_repo_config(repo)?;
+        }
+        let url = format!(
+            "  https://github.com/{fork}/settings  -> Default branch -> switch to kafes-checks"
+        );
+        prompt_instruction(&[
+            &format!("Make kafes-checks the default branch of {fork} (currently {current}):"),
+            &url,
+        ])?;
+        if default_branch(&fork)? != "kafes-checks" {
+            bail!("the default branch is still not kafes-checks");
+        }
+    }
+
+    if rules_ok(&fork) {
+        print_info("ruleset on kafes-base/** verified");
+        return Ok(());
+    }
+
+    let kafes_fork = repo.kafes_fork(global);
+    prompt_instruction(&[
+        &format!("Create two repository VARIABLES (not secrets) on {fork}, or check they're set:"),
+        &format!("  https://github.com/{fork}/settings/variables/actions"),
+        &format!("  KAFES_FORK  = {kafes_fork}"),
+        &format!("  KAFES_EMAIL = {}", global.app.bot_email),
+        &format!("Allow Actions on {fork} (forks start with workflows disabled):"),
+        &format!(
+            "  https://github.com/{fork}/actions  -> 'I understand my workflows, go ahead and enable them'"
+        ),
+    ])?;
+
+    bootstrap_status(global, repo)?;
+
+    prompt_instruction(&[
+        &format!("Create the ruleset: https://github.com/{fork}/settings/rules/new?target=branch"),
+        "  (if a kafes-base ruleset already exists, edit it instead)",
+        "  Name: kafes-base. Enforcement: Active. Bypass list: EMPTY.",
+        "  Target branches -> Add target -> Include by pattern: kafes-base/**",
+        "  Rules: Restrict deletions; Block force pushes;",
+        "    Require status checks to pass -> Add checks -> kafes-pr-check,",
+        "    and set its source to 'GitHub Actions' (never 'Any source').",
+        "    Also tick 'Do not require status checks on creation'.",
+        "  If the check or source is missing, refresh the editor and add it again.",
+    ])?;
+
+    if !rules_ok(&fork) {
+        bail!("the ruleset on kafes-base/** is not as required; fix it and re-run");
+    }
+
+    print_info("ruleset on kafes-base/** verified");
+    Ok(())
 }
 
 fn main() {
