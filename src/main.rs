@@ -2,15 +2,21 @@ pub mod config;
 pub mod consts;
 pub mod utils;
 
-use crate::consts::{ACL, ACL_RULES, GATEWAY_CFG_PATH, OMP_PATH, OMP_VERSION, PUSH_CFG_PATH, SANDBOX_PATH, TASKS_PATH};
-use crate::consts::BUN_VERSION;
 use crate::config::{
     AppConfig, GlobalConfig, NetworkConfig, RepoConfig, load_global_config, load_repo_config,
     save_global_config, save_repo_config, valid_name,
 };
+use crate::consts::BUN_PATH;
+use crate::consts::BUN_VERSION;
+use crate::consts::UNIT_PROXY;
+use crate::consts::{
+    ACL, ACL_RULES, GATEWAY_CFG_PATH, OMP_PATH, OMP_VERSION, PUSH_CFG_PATH, SANDBOX_PATH,
+    TASKS_PATH,
+};
 use crate::utils::{
     anon_fetch, bootstrap_status, checks_commit, gh_api, manual_push, print_warning,
-    prompt_instruction, prompt_text, remote_sha, rules_ok, write_atomic,
+    prompt_instruction, prompt_text, remote_sha, rules_ok, start_services, stop_services,
+    write_atomic,
 };
 use anyhow::{Context, Result, bail};
 use std::fs::{create_dir_all, read_to_string, remove_file};
@@ -20,7 +26,6 @@ use utils::{
     check_cmd, get_cmd_version, home_path, is_executable, print, print_info, prompt_confirm,
     prompt_multiselect, run_cmd, run_status, step,
 };
-use crate::consts::BUN_PATH;
 
 fn omp_version_ok(omp: &Path) -> bool {
     Command::new(omp)
@@ -552,6 +557,33 @@ fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
 
     print_info("ruleset on kafes-base/** verified");
     Ok(())
+}
+
+fn setup_verify(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
+    print("Verifying the services...");
+    start_services(global, repo)?;
+    print_info("broker, gateway and push proxy are running");
+
+    let kafes_fork = repo.kafes_fork(global);
+    let gitconfig = home_path(PUSH_CFG_PATH)?.join("client.gitconfig");
+    let probe = step("push proxy", || {
+        run_cmd(
+            "git",
+            &[
+                "-c",
+                &format!("include.path={}", gitconfig.display()),
+                "ls-remote",
+                &format!("http://localhost:4100/{kafes_fork}.git"),
+                "HEAD",
+            ],
+        )
+        .map(|_| format!("can read {kafes_fork}"))
+        .with_context(|| format!("check: journalctl --user -u {UNIT_PROXY}"))
+    });
+
+    let stopped = stop_services();
+    probe?;
+    stopped
 }
 
 fn main() {
