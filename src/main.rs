@@ -14,9 +14,9 @@ use crate::consts::{
     TASKS_PATH,
 };
 use crate::utils::{
-    anon_fetch, bootstrap_status, checks_commit, gh_api, manual_push, print_warning,
-    prompt_instruction, prompt_text, remote_sha, rules_ok, start_services, stop_services,
-    write_atomic,
+    anon_fetch, bootstrap_status, checks_commit, gh_api, install_self, link_command, manual_push,
+    print_warning, prompt_instruction, prompt_text, remote_sha, rules_ok, start_services,
+    stop_services, write_atomic, write_trusted_files,
 };
 use anyhow::{Context, Result, bail};
 use std::fs::{create_dir_all, read_to_string, remove_file};
@@ -556,6 +556,24 @@ fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     }
 
     print_info("ruleset on kafes-base/** verified");
+    Ok(())
+}
+
+fn setup_proxy_files() -> Result<()> {
+    print("Setting up trusted files and push proxy...");
+    write_trusted_files()?;
+    let kafes = install_self()?;
+    link_command(&kafes)?;
+    let sandbox = home_path(SANDBOX_PATH)?;
+    print_info(&format!(
+        "trusted files written to {} (no secrets)",
+        sandbox.display()
+    ));
+
+    let proxy = sandbox.join("kafes-push-proxy.ts");
+    if !prompt_confirm(&format!("Have you read {}?", proxy.display()))? {
+        bail!("read the proxy before running it");
+    }
     Ok(())
 }
 

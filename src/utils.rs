@@ -1,6 +1,7 @@
 use crate::config::{GlobalConfig, RepoConfig};
 use crate::consts::{
-    ACTIONS_APP_ID, BUN_PATH, GATEWAY_CFG_PATH, OMP_PATH, PUSH_CFG_PATH, SANDBOX_PATH, UNIT_BROKER,
+    ACTIONS_APP_ID, BUN_PATH, BUN_VERSION, CHECK_YML, DEV_YAML, GATEWAY_CFG_PATH, OMP_PATH,
+    OMP_VERSION, POLICY, PROMPT, PROXY_TS, PUSH_CFG_PATH, SANDBOX_PATH, SETUP_WS, UNIT_BROKER,
     UNIT_PROXY,
 };
 use crate::consts::{BROKER_URL, UNIT_GATEWAY};
@@ -9,6 +10,7 @@ use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::{Confirm, MultiSelect, Text, required};
 use serde_json::Value;
+use std::fs;
 use std::fs::{OpenOptions, create_dir_all, remove_file, rename};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -142,6 +144,12 @@ pub fn write_atomic(path: &Path, contents: &str) -> Result<()> {
 
     rename(&tmp, path).with_context(|| format!("can't replace {}", path.display()))?;
     Ok(())
+}
+
+pub fn write_atomic_mode(path: &Path, contents: &str, mode: u32) -> Result<()> {
+    write_atomic(path, contents)?;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .with_context(|| format!("can't chmod {}", path.display()))
 }
 
 pub fn gh_api(path: &str) -> Result<Value> {
@@ -584,5 +592,76 @@ pub fn stop_services() -> Result<()> {
         systemctl_user(&["reset-failed", &svc]);
     }
     ensure!(clean, "the push proxy did not stop cleanly");
+    Ok(())
+}
+
+pub fn write_trusted_files() -> Result<()> {
+    let sandbox = home_path(SANDBOX_PATH)?;
+    create_dir_all(&sandbox)?;
+
+    let setup_ws = SETUP_WS
+        .replace("{{BUN_VERSION}}", BUN_VERSION)
+        .replace("{{OMP_VERSION}}", OMP_VERSION);
+
+    let files: [(&str, &str, u32); 7] = [
+        ("dev.yaml", DEV_YAML, 0o644),
+        ("setup-workshop.sh", &setup_ws, 0o644),
+        ("kafes-policy.yml", POLICY, 0o644),
+        ("kafes-prompt.md", PROMPT, 0o644),
+        (
+            "bunfig.toml",
+            "# Intentionally no Bun settings or preloads.\n",
+            0o644,
+        ),
+        ("kafes-push-proxy.ts", PROXY_TS, 0o644),
+        ("kafes-pr-check.yml", CHECK_YML, 0o644),
+    ];
+    for (name, text, mode) in files.iter().filter(|f| !f.0.is_empty()) {
+        write_atomic_mode(&sandbox.join(name), text, *mode)?;
+    }
+    Ok(())
+}
+
+pub fn install_self() -> Result<PathBuf> {
+    let dest = home_path(SANDBOX_PATH)?.join("kafes");
+    let exe = std::env::current_exe()?.canonicalize()?;
+    if exe != dest {
+        let tmp = dest.with_extension("tmp");
+        fs::copy(&exe, &tmp).context("can't copy the kafes binary")?;
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
+        rename(&tmp, &dest)?;
+        print_info(&format!("copied kafes into {}", dest.display()));
+    }
+    Ok(dest)
+}
+
+pub fn link_command(target: &Path) -> Result<()> {
+    let link = home_path(".local/bin/kafes")?;
+    create_dir_all(link.parent().context("bad link path")?)?;
+
+    match fs::read_link(&link) {
+        Ok(current) if current == target => {}
+        Ok(_) => {
+            print_warning(&format!("{} exists and isn't kafes's link; left alone", link.display()));
+            return Ok(());
+        }
+        Err(_) if link.exists() => {
+            print_warning(&format!("{} exists and isn't a link; left alone", link.display()));
+            return Ok(());
+        }
+        Err(_) => {
+            std::os::unix::fs::symlink(target, &link)?;
+            print_info(&format!("linked {} -> {}", link.display(), target.display()));
+        }
+    }
+
+    let bin_dir = home_path(".local/bin")?;
+    let on_path = std::env::var_os("PATH")
+        .is_some_and(|p| std::env::split_paths(&p).any(|d| d == bin_dir));
+    if on_path {
+        print_info("from now on, run it as: kafes");
+    } else {
+        print_warning("~/.local/bin is not on PATH yet; add: export PATH=\"$HOME/.local/bin:$PATH\"");
+    }
     Ok(())
 }

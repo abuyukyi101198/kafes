@@ -25,3 +25,10 @@ pub const UNIT_PROXY: &str = "kafes-proxy";
 pub const BROKER_URL: &str = "http://127.0.0.1:8765";
 
 pub const ACTIONS_APP_ID: u64 = 15368;
+
+pub const DEV_YAML: &str = include_str!("../assets/dev.yaml");
+pub const POLICY: &str = include_str!("../assets/kafes-policy.yml");
+pub const PROMPT: &str = include_str!("../assets/kafes-prompt.md");
+pub const SETUP_WS: &str = include_str!("../assets/setup-workshop.sh");
+pub const PROXY_TS: &str = include_str!("../assets/kafes-push-proxy.ts");
+pub const CHECK_YML: &str = include_str!("../assets/kafes-pr-check.yml");
