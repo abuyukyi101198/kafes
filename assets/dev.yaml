@@ -1,0 +1,21 @@
+name: dev
+base: ubuntu@24.04
+runtime: lxd-container
+sdks:
+  - name: node
+    channel: 22/stable
+    plugs:
+      kafes-gateway:
+        interface: tunnel
+        endpoint: localhost:4000
+      kafes-push:
+        interface: tunnel
+        endpoint: localhost:4100
+  - name: system
+    slots:
+      kafes-gateway:
+        interface: tunnel
+        endpoint: localhost:4000
+      kafes-push:
+        interface: tunnel
+        endpoint: localhost:4100

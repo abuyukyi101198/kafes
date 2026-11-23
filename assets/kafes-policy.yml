@@ -1,0 +1,14 @@
+tools:
+  xdev: false
+  approval:
+    edit: prompt
+    write: prompt
+    bash: prompt
+    eval: deny
+    task: deny
+    browser: deny
+    lsp: deny
+bash:
+  direnv: off
+  patterns: []
+  allowCompoundCommands: false
