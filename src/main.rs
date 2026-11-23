@@ -2,11 +2,11 @@ pub mod config;
 pub mod utils;
 
 use crate::config::{
-    load_global_config, load_repo_config, save_global_config, save_repo_config, valid_name, AppConfig,
-    GlobalConfig, RepoConfig,
+    AppConfig, GlobalConfig, NetworkConfig, RepoConfig, load_global_config, load_repo_config,
+    save_global_config, save_repo_config, valid_name,
 };
 use crate::utils::{gh_api, prompt_instruction, prompt_text, write_atomic};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs::{create_dir_all, read_to_string, remove_file};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -341,6 +341,87 @@ fn setup_org() -> Result<()> {
         },
         network: prev.and_then(|p| p.network),
     })
+}
+
+const ACL: &str = "kafes-no-lan";
+const ACL_RULES: [&[&str]; 4] = [
+    &[
+        "egress",
+        "action=reject",
+        "destination=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,100.64.0.0/10",
+    ],
+    &["egress", "action=reject", "destination=fc00::/7,fe80::/10"],
+    &["egress", "action=allow"],
+    &["ingress", "action=allow"],
+];
+
+fn setup_acl() -> Result<()> {
+    print("Blocking the workshop from the host network...");
+    run_status("sudo", &["-v"])?;
+    let mut global = load_global_config()?;
+
+    let bridge = match global.network.as_ref() {
+        Some(n) => n.bridge.clone(),
+        None => {
+            let csv = run_cmd("sudo", &["lxc", "network", "list", "--format", "csv"])?;
+            let bridges: Vec<String> = csv
+                .lines()
+                .filter_map(|l| {
+                    let mut cols = l.split(',');
+                    let name = cols.next()?;
+                    (cols.next()? == "bridge").then(|| name.to_string())
+                })
+                .collect();
+            print_info(&format!("LXD bridges: {}", bridges.join(", ")));
+            prompt_text("Workshop container bridge", Some("workshopbr0"))?
+        }
+    };
+
+    run_cmd("sudo", &["lxc", "network", "acl", "show", &bridge])
+        .with_context(|| format!("no LXD network {bridge}"))?;
+
+    if run_cmd("sudo", &["lxc", "network", "acl", "show", ACL]).is_err() {
+        step(ACL, || {
+            run_cmd("sudo", &["lxc", "network", "acl", "create", ACL])?;
+            for rule in ACL_RULES {
+                let mut args = vec!["lxc", "network", "acl", "rule", "add", ACL];
+                args.extend_from_slice(rule);
+                run_cmd("sudo", &args)?;
+            }
+            Ok("created".to_string())
+        })?;
+    }
+
+    let current = run_cmd("sudo", &["lxc", "network", "get", &bridge, "security.acls"])?;
+    let current = current.trim();
+    let mut acls_before = global
+        .network
+        .as_ref()
+        .map(|n| n.acls_before.clone())
+        .unwrap_or_default();
+
+    if !current.split(',').any(|a| a == ACL) {
+        acls_before = current.to_string();
+        let value = if current.is_empty() {
+            ACL.to_string()
+        } else {
+            format!("{current},{ACL}")
+        };
+        run_cmd(
+            "sudo",
+            &[
+                "lxc",
+                "network",
+                "set",
+                &bridge,
+                &format!("security.acls={value}"),
+            ],
+        )?;
+    }
+
+    print_info(&format!("{ACL} attached to {bridge} (previous ACLs: '{acls_before}'"));
+    global.network = Some(NetworkConfig {bridge, acls_before});
+    save_global_config(&global)
 }
 
 fn main() {
