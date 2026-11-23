@@ -14,7 +14,7 @@ mod ui;
 mod utils;
 mod workshop;
 
-use crate::commands::task::{end, new, shell, start, stop};
+use crate::commands::task::{end, list, new, shell, start, stop};
 use crate::utils::check_cwd;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
@@ -38,6 +38,9 @@ enum TaskCmd {
         #[arg(long)]
         name: Option<String>,
     },
+    /// List tasks and their state
+    #[command(visible_alias = "ls")]
+    List,
     /// Open the task workshop's terminal
     Shell { task: String },
     /// Pause: revoke credentials and stop the workshop
@@ -57,6 +60,9 @@ enum RepoCmd {
         #[arg(long)]
         profile: Option<String>,
     },
+    /// List the added repositories
+    #[command(visible_alias = "ls")]
+    List,
     /// Edit a repository's profile in $EDITOR, or replace it with a preset
     Edit {
         repo: String,
@@ -104,12 +110,14 @@ fn main() -> ExitCode {
         Cmd::Setup => commands::setup::cmd_setup(),
         Cmd::Repo { cmd } => match cmd {
             RepoCmd::Add { repo, profile } => commands::repo::add::cmd_add(repo, profile),
+            RepoCmd::List => commands::repo::list::cmd_list(),
             RepoCmd::Edit { repo, profile } => commands::repo::profile::cmd_edit(&repo, profile),
             RepoCmd::Show { repo } => commands::repo::profile::cmd_show(&repo),
             RepoCmd::Remove { repo } => commands::repo::remove::cmd_remove(&repo),
         },
         Cmd::Task { cmd } => match cmd {
             TaskCmd::New { target, name } => new::cmd_task_new(&target, name),
+            TaskCmd::List => list::cmd_task_list(),
             TaskCmd::Shell { task } => shell::cmd_task_shell(&task),
             TaskCmd::Stop { task } => stop::cmd_task_stop(&task),
             TaskCmd::Start { task } => start::cmd_task_start(&task),
