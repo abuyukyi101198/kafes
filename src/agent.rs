@@ -50,7 +50,7 @@ pub fn push_agent_files(task: &str, repo: &str) -> Result<()> {
         ),
     ];
     for (script, content) in files {
-        ws_exec_stdin(task, script, &content, &[])?;
+        ws_exec_stdin(task, script, &content)?;
     }
     Ok(())
 }
@@ -61,7 +61,6 @@ pub fn push_credentials(task: &str, providers: &[String]) -> Result<()> {
         task,
         "umask 077; cat > ~/.config/kafes-push.gitconfig",
         &gitconfig,
-        &[],
     )?;
     let include = format!("{WS_HOME}/.config/kafes-push.gitconfig");
     ws(
@@ -96,7 +95,6 @@ pub fn push_credentials(task: &str, providers: &[String]) -> Result<()> {
         task,
         "umask 077; cat > ~/.config/kafes-gateway.token",
         &token,
-        &[],
     )?;
 
     let code = ws_output(

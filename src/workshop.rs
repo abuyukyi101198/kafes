@@ -1,4 +1,5 @@
 use crate::constants::{SANDBOX_PATH, TASKS_PATH};
+use crate::guard::Interactive;
 use crate::ui::{print, print_info};
 use crate::utils::home_path;
 use anyhow::{Context, Result, bail, ensure};
@@ -38,14 +39,9 @@ pub fn ws_output(task: &str, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8(out.stdout)?)
 }
 
-pub fn ws_exec_stdin(task: &str, script: &str, input: &str, env: &[(&str, &str)]) -> Result<()> {
-    let mut cmd = ws_cmd(task)?;
-    cmd.arg("exec");
-    for (k, v) in env {
-        cmd.args(["--env", *k]).env(k, v);
-    }
-    let mut child = cmd
-        .args(["dev", "--", "sh", "-c", script])
+pub fn ws_exec_stdin(task: &str, script: &str, input: &str) -> Result<()> {
+    let mut child = ws_cmd(task)?
+        .args(["exec", "dev", "--", "sh", "-c", script])
         .stdin(Stdio::piped())
         .spawn()
         .context("failed to run workshop")?;
@@ -149,6 +145,7 @@ pub fn open_shell(task: &str) -> Result<()> {
     print(&format!("Workshop terminal for {task}"));
     print_info("Run kafes-omp to start the agent; kafes-omp -c continues the last session.");
     print_info("Leave with exit. The workshop keeps running until kafes task stop or end.");
+    let _interactive = Interactive::begin();
     let _ = ws_cmd(task)?
         .args(["shell", "dev"])
         .stdin(Stdio::inherit())

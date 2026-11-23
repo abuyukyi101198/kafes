@@ -96,7 +96,7 @@ pub fn cmd_task_new(task: &str, feature: &str, repo: Option<String>) -> Result<(
 
     print("Set up the workshop");
     let script = fs::read_to_string(home_path(SANDBOX_PATH)?.join("setup-workshop.sh"))?;
-    ws_exec_stdin(task, "cat > /tmp/setup-workshop.sh", &script, &[])?;
+    ws_exec_stdin(task, "cat > /tmp/setup-workshop.sh", &script)?;
     ws(task, &["exec", "dev", "--", "sh", "/tmp/setup-workshop.sh"])?;
     push_agent_files(task, &repo.name)?;
     push_credentials(task, &settings.providers)?;

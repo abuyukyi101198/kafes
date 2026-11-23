@@ -9,7 +9,7 @@ use crate::constants::{
 use crate::services::stop_services;
 use crate::state::load_active;
 use crate::ui::{print, print_info, print_warning, prompt_confirm, prompt_instruction};
-use crate::utils::{home_path, run_cmd, run_status};
+use crate::utils::{home_path, run_cmd, run_status, tmp_path};
 use crate::workshop::ws;
 use anyhow::{Context, Result, ensure};
 use std::fs;
@@ -180,12 +180,14 @@ fn remove_local_files() -> Result<()> {
         push.join("client.token"),
         push.join("client.gitconfig"),
         gateway.join("clients.json"),
-        gateway.join("clients.tmp"),
         state.join("active-task.toml"),
         state.join("task-models.yml"),
         state.join("task-config.yml"),
     ];
     files.extend(SANDBOX_FILES.iter().map(|f| sandbox.join(f)));
+    // Leftovers of an interrupted write_atomic
+    let tmps: Vec<_> = files.iter().map(|f| tmp_path(f)).collect();
+    files.extend(tmps);
     for f in &files {
         let _ = fs::remove_file(f);
     }

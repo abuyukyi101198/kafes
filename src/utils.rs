@@ -81,8 +81,14 @@ pub fn is_executable(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+pub fn tmp_path(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".tmp");
+    PathBuf::from(name)
+}
+
 pub fn write_atomic(path: &Path, contents: &str) -> Result<()> {
-    let tmp = path.with_extension("tmp");
+    let tmp = tmp_path(path);
     let _ = fs::remove_file(&tmp);
 
     let mut file = OpenOptions::new()

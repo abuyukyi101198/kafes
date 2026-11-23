@@ -2,7 +2,7 @@ use crate::constants::{
     BUN_VERSION, CHECK_YML, DEV_YAML, OMP_VERSION, POLICY, PROMPT, PROXY_TS, SANDBOX_PATH, SETUP_WS,
 };
 use crate::ui::{print, print_info, print_warning, prompt_confirm};
-use crate::utils::{home_path, write_atomic_mode};
+use crate::utils::{home_path, tmp_path, write_atomic_mode};
 use anyhow::{Context, Result, bail};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -57,7 +57,7 @@ fn install_self() -> Result<PathBuf> {
     let dest = home_path(SANDBOX_PATH)?.join("kafes");
     let exe = std::env::current_exe()?.canonicalize()?;
     if exe != dest {
-        let tmp = dest.with_extension("tmp");
+        let tmp = tmp_path(&dest);
         fs::copy(&exe, &tmp).context("can't copy the kafes binary")?;
         fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
         fs::rename(&tmp, &dest)?;

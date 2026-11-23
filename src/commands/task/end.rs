@@ -1,8 +1,10 @@
-use crate::config::{load_global_config, load_repo_config, pick_repo, valid_name};
+use crate::config::{
+    GlobalConfig, RepoConfig, load_global_config, load_repo_config, pick_repo, valid_name,
+};
 use crate::constants::{STATE_PATH, TASKS_PATH};
 use crate::git::remote_sha;
 use crate::services::{revoke_gateway_clients, stop_proxy, stop_services};
-use crate::state::{clear_active, load_active};
+use crate::state::{TaskState, clear_active, load_active};
 use crate::ui::{print, print_info, print_warning};
 use crate::utils::home_path;
 use crate::workshop::ws;
@@ -11,35 +13,44 @@ use std::fs;
 
 pub fn cmd_task_end(task: &str, repo: Option<String>) -> Result<()> {
     ensure!(valid_name(task), "invalid task name: {task}");
-    let global = load_global_config()?;
-    let active = load_active()?.filter(|s| s.name == task);
-    let repo = match &active {
-        Some(s) => load_repo_config(&s.repo)?,
-        None => pick_repo(repo)?,
-    };
 
     print("Stop host services and revoke credentials");
     let clean = stop_proxy();
     revoke_gateway_clients()?;
-    stop_services()?;
+    if let Err(e) = stop_services() {
+        print_warning(&format!("{e:#}"));
+    }
+
+    // A corrupt state file must not block the rest of the cleanup
+    let active = match load_active() {
+        Ok(a) => a.filter(|s| s.name == task),
+        Err(e) => {
+            print_warning(&format!("{e:#}"));
+            None
+        }
+    };
 
     print("Remove the workshop");
     let dir = home_path(TASKS_PATH)?.join(task);
-    let is_plain_dir = fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir());
-    if is_plain_dir {
-        ws(task, &["remove", "dev"]).with_context(|| {
-            format!(
-                "workshop remove failed; keep {} and fix it (see 'sudo lxc list')",
-                dir.display()
-            )
-        })?;
-        fs::remove_dir_all(&dir)?;
-        print_info(&format!("workshop and {} removed", dir.display()));
-    } else {
-        print_warning(&format!(
+    match fs::symlink_metadata(&dir) {
+        Ok(m) if m.is_dir() => {
+            ws(task, &["remove", "dev"]).with_context(|| {
+                format!(
+                    "workshop remove failed; keep {} and fix it (see 'sudo lxc list')",
+                    dir.display()
+                )
+            })?;
+            fs::remove_dir_all(&dir)?;
+            print_info(&format!("workshop and {} removed", dir.display()));
+        }
+        Ok(_) => print_warning(&format!(
+            "{} is not a plain directory; left in place, inspect it without entering it",
+            dir.display()
+        )),
+        Err(_) => print_warning(&format!(
             "{} is gone; check 'sudo lxc list' for a leftover container",
             dir.display()
-        ));
+        )),
     }
     if active.is_some() {
         clear_active()?;
@@ -49,8 +60,37 @@ pub fn cmd_task_end(task: &str, repo: Option<String>) -> Result<()> {
     }
 
     print("Review");
-    let fork = repo.fork(&global);
-    let kafes_fork = repo.kafes_fork(&global);
+    match resolve_repo(active.as_ref(), repo) {
+        Ok((global, repo)) => {
+            if let Err(e) = review(task, &global, &repo) {
+                print_warning(&format!("review lookup failed: {e:#}"));
+            }
+        }
+        Err(e) => print_warning(&format!("can't show the review links: {e:#}")),
+    }
+
+    ensure!(
+        clean,
+        "the push proxy did not stop cleanly; a token may stay valid for up to 1 h"
+    );
+    Ok(())
+}
+
+fn resolve_repo(
+    active: Option<&TaskState>,
+    repo: Option<String>,
+) -> Result<(GlobalConfig, RepoConfig)> {
+    let global = load_global_config()?;
+    let repo = match active {
+        Some(s) => load_repo_config(&s.repo)?,
+        None => pick_repo(repo)?,
+    };
+    Ok((global, repo))
+}
+
+fn review(task: &str, global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
+    let fork = repo.fork(global);
+    let kafes_fork = repo.kafes_fork(global);
     let branch = format!("kafes/{task}");
     match remote_sha(&kafes_fork, &branch)? {
         None => print_info(&format!("the agent pushed no {branch} branch")),
@@ -77,9 +117,5 @@ pub fn cmd_task_end(task: &str, repo: Option<String>) -> Result<()> {
             ));
         }
     }
-    ensure!(
-        clean,
-        "the push proxy did not stop cleanly; a token may stay valid for up to 1 h"
-    );
     Ok(())
 }

@@ -1,8 +1,25 @@
 use crate::ui::print_warning;
 use anyhow::Result;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 static HINT: Mutex<Option<String>> = Mutex::new(None);
+static INTERACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub struct Interactive;
+
+impl Interactive {
+    pub fn begin() -> Self {
+        INTERACTIVE.store(true, Ordering::SeqCst);
+        Interactive
+    }
+}
+
+impl Drop for Interactive {
+    fn drop(&mut self) {
+        INTERACTIVE.store(false, Ordering::SeqCst);
+    }
+}
 
 fn print_hint() {
     if let Some(cmd) = HINT.lock().ok().and_then(|mut h| h.take()) {
@@ -35,6 +52,9 @@ impl Drop for FailureHint {
 
 pub fn install_signal_handler() -> Result<()> {
     ctrlc::set_handler(|| {
+        if INTERACTIVE.load(Ordering::SeqCst) {
+            return;
+        }
         print_hint();
         std::process::exit(130);
     })?;

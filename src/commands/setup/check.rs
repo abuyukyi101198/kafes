@@ -18,6 +18,7 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     if !src.is_file() {
         bail!("{} missing; run kafes setup first", src.display());
     }
+    old_worktree_gone(&dir)?;
     let want = checks_commit(&dir, &src)?;
 
     let remote = match remote_sha(&fork, "kafes-checks")? {
@@ -146,6 +147,38 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     }
 
     print_info("ruleset on kafes-base/** verified");
+    Ok(())
+}
+
+fn old_worktree_gone(dir: &Path) -> Result<()> {
+    let old = home_path("kafes/checks")?;
+    let line = format!("worktree {}", old.display());
+    let registered = || -> Result<bool> {
+        let list = run_cmd(
+            "git",
+            &[
+                "-C",
+                &dir.to_string_lossy(),
+                "worktree",
+                "list",
+                "--porcelain",
+            ],
+        )?;
+        Ok(list.lines().any(|l| l == line))
+    };
+    if !registered()? {
+        return Ok(());
+    }
+    let (o, d) = (old.display(), dir.display());
+    prompt_instruction(&[
+        &format!("An earlier kafes left a worktree at {o}. Check it holds nothing you need:"),
+        &format!("  git -C '{o}' status --short"),
+        &format!("then remove it:  git -C '{d}' worktree remove '{o}'"),
+        &format!("(if the directory is already gone:  git -C '{d}' worktree prune)"),
+    ])?;
+    if registered()? {
+        bail!("the worktree is still registered");
+    }
     Ok(())
 }
 
