@@ -1,7 +1,7 @@
 //! Host services (broker, gateway, push proxy) as systemd user units.
 
 use crate::config::{GlobalConfig, RepoConfig};
-use crate::consts::{
+use crate::constants::{
     BROKER_URL, BUN_PATH, GATEWAY_CFG_PATH, OMP_PATH, PUSH_CFG_PATH, SANDBOX_PATH, UNIT_BROKER,
     UNIT_GATEWAY, UNIT_PROXY,
 };

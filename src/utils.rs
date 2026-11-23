@@ -7,7 +7,7 @@ use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use crate::consts::TASKS_PATH;
+use crate::constants::TASKS_PATH;
 
 pub fn check_cwd() -> Result<()> {
     let tasks = home_path(TASKS_PATH)?;

@@ -1,5 +1,5 @@
 use crate::config::{AppConfig, GlobalConfig, load_global_config, save_global_config, valid_name};
-use crate::consts::PUSH_CFG_PATH;
+use crate::constants::PUSH_CFG_PATH;
 use crate::github::gh_api;
 use crate::ui::{print, print_info, prompt_instruction, prompt_text};
 use crate::utils::{home_path, run_cmd, write_atomic};

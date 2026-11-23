@@ -1,4 +1,4 @@
-use crate::consts::{
+use crate::constants::{
     BUN_VERSION, CHECK_YML, DEV_YAML, OMP_VERSION, POLICY, PROMPT, PROXY_TS, SANDBOX_PATH, SETUP_WS,
 };
 use crate::ui::{print, print_info, print_warning, prompt_confirm};

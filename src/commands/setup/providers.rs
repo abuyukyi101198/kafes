@@ -1,4 +1,4 @@
-use crate::consts::{GATEWAY_CFG_PATH, OMP_PATH, SANDBOX_PATH, TASKS_PATH};
+use crate::constants::{GATEWAY_CFG_PATH, OMP_PATH, SANDBOX_PATH, TASKS_PATH};
 use crate::ui::{print, prompt_multiselect};
 use crate::utils::{home_path, run_status, write_atomic};
 use anyhow::Result;

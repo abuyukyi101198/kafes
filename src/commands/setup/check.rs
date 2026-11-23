@@ -1,5 +1,5 @@
 use crate::config::{GlobalConfig, RepoConfig, save_repo_config};
-use crate::consts::{ACTIONS_APP_ID, SANDBOX_PATH};
+use crate::constants::{ACTIONS_APP_ID, SANDBOX_PATH};
 use crate::git::{anon_fetch, git_stdin, manual_push, remote_sha};
 use crate::github::gh_api;
 use crate::ui::{

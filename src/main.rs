@@ -1,11 +1,15 @@
 mod commands;
 mod config;
-mod consts;
+mod constants;
 mod git;
 mod github;
+mod guard;
+mod network;
 mod services;
+mod state;
 mod ui;
 mod utils;
+mod workshop;
 
 use crate::utils::check_cwd;
 use clap::{Parser, Subcommand};
@@ -31,6 +35,10 @@ fn main() -> ExitCode {
     // SAFETY: a plain syscall that only changes this process's file-creation mask
     unsafe {
         libc::umask(0o077);
+    }
+
+    if let Err(e) = guard::install_signal_handler() {
+        eprintln!("can't install the Ctrl+C handler: {e}");
     }
 
     let cli = Cli::parse();

@@ -1,5 +1,5 @@
 use crate::config::{GlobalConfig, RepoConfig};
-use crate::consts::{PUSH_CFG_PATH, UNIT_PROXY};
+use crate::constants::{PUSH_CFG_PATH, UNIT_PROXY};
 use crate::services::{start_services, stop_services};
 use crate::ui::{print, print_info, step};
 use crate::utils::{home_path, run_cmd};

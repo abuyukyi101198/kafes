@@ -1,4 +1,4 @@
-use crate::consts::{BUN_PATH, BUN_VERSION, OMP_PATH, OMP_VERSION};
+use crate::constants::{BUN_PATH, BUN_VERSION, OMP_PATH, OMP_VERSION};
 use crate::ui::{print, print_info, prompt_confirm, step};
 use crate::utils::{check_cmd, get_cmd_version, home_path, is_executable, run_cmd, run_status};
 use anyhow::{Context, Result, bail};

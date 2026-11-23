@@ -1,5 +1,5 @@
 use crate::config::{NetworkConfig, load_global_config, save_global_config};
-use crate::consts::{ACL, ACL_RULES};
+use crate::constants::{ACL, ACL_RULES};
 use crate::ui::{print, print_info, prompt_text, step};
 use crate::utils::{run_cmd, run_status};
 use anyhow::{Context, Result};
