@@ -102,10 +102,10 @@ fn host_settings() -> Result<HostSettings> {
             continue;
         }
         let mut value = value.cloned().unwrap_or(Value::Null);
-        if matches!(key.as_str(), "enabledModels" | "disabledProviders") {
-            if let Value::Array(items) = &mut value {
-                items.retain(Value::is_string);
-            }
+        if matches!(key.as_str(), "enabledModels" | "disabledProviders")
+            && let Value::Array(items) = &mut value
+        {
+            items.retain(Value::is_string);
         }
         set_path(&mut copied, &key, value);
     }

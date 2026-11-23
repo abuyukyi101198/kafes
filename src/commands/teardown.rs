@@ -50,10 +50,10 @@ fn remove_tasks() -> Result<()> {
     print("1. Tasks and services");
     // Every recorded task, plus an active one without a record
     let mut names: Vec<String> = list_records()?.into_iter().map(|r| r.name).collect();
-    if let Some(active) = load_active()? {
-        if !names.contains(&active.name) {
-            names.push(active.name);
-        }
+    if let Some(active) = load_active()?
+        && !names.contains(&active.name)
+    {
+        names.push(active.name);
     }
     for name in names {
         if let Err(e) = cmd_task_end(&name) {
@@ -149,22 +149,22 @@ fn remove_remote_credentials(global: &GlobalConfig) -> Result<()> {
 fn restore_bridge(global: &GlobalConfig) -> Result<()> {
     print("4. LXD network ACL");
     run_status("sudo", &["-v"])?;
-    if let Some(net) = &global.network {
-        if run_cmd("sudo", &["lxc", "network", "show", &net.bridge]).is_ok() {
-            if net.acls_before.is_empty() {
-                run_cmd(
-                    "sudo",
-                    &["lxc", "network", "unset", &net.bridge, "security.acls"],
-                )?;
-            } else {
-                let value = format!("security.acls={}", net.acls_before);
-                run_cmd("sudo", &["lxc", "network", "set", &net.bridge, &value])?;
-            }
-            print_info(&format!(
-                "{} ACLs restored to '{}'",
-                net.bridge, net.acls_before
-            ));
+    if let Some(net) = &global.network
+        && run_cmd("sudo", &["lxc", "network", "show", &net.bridge]).is_ok()
+    {
+        if net.acls_before.is_empty() {
+            run_cmd(
+                "sudo",
+                &["lxc", "network", "unset", &net.bridge, "security.acls"],
+            )?;
+        } else {
+            let value = format!("security.acls={}", net.acls_before);
+            run_cmd("sudo", &["lxc", "network", "set", &net.bridge, &value])?;
         }
+        print_info(&format!(
+            "{} ACLs restored to '{}'",
+            net.bridge, net.acls_before
+        ));
     }
     if run_cmd("sudo", &["lxc", "network", "acl", "show", ACL]).is_ok()
         && run_cmd("sudo", &["lxc", "network", "acl", "delete", ACL]).is_err()

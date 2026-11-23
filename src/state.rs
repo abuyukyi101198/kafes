@@ -90,10 +90,11 @@ pub fn list_records() -> Result<Vec<TaskRecord>> {
     for entry in entries {
         let path = entry?.path();
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        if path.extension().is_some_and(|x| x == "toml") && valid_name(stem) {
-            if let Some(r) = load_record(stem)? {
-                records.push(r);
-            }
+        if path.extension().is_some_and(|x| x == "toml")
+            && valid_name(stem)
+            && let Some(r) = load_record(stem)?
+        {
+            records.push(r);
         }
     }
     records.sort_by(|a, b| a.name.cmp(&b.name));

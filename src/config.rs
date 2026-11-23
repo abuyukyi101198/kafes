@@ -99,12 +99,11 @@ pub fn list_repos() -> Result<Vec<String>> {
     let mut names = Vec::new();
     for entry in entries {
         let path = entry?.path();
-        if path.extension().is_some_and(|x| x == "toml") {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                if valid_name(stem) {
-                    names.push(stem.to_string());
-                }
-            }
+        if path.extension().is_some_and(|x| x == "toml")
+            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            && valid_name(stem)
+        {
+            names.push(stem.to_string());
         }
     }
 
