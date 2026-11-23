@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use ureq::Agent;
+use crate::consts::ACTIONS_APP_ID;
 
 pub fn print(msg: &str) {
     println!("\n{}", format!("{msg}").bold());
@@ -300,7 +301,7 @@ pub fn checks_commit(dir: &Path, workflow: &Path) -> Result<String> {
     )
 }
 
-const ACTIONS_APP_ID: u64 = 15368;
+
 
 pub fn rules_ok(fork: &str) -> bool {
     let Ok(rules) = gh_api(&format!(

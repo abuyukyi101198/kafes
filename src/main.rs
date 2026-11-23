@@ -1,6 +1,9 @@
 pub mod config;
+pub mod consts;
 pub mod utils;
 
+use crate::consts::{ACL, ACL_RULES, GATEWAY_CFG_PATH, OMP_PATH, OMP_VERSION, PUSH_CFG_PATH, SANDBOX_PATH, TASKS_PATH};
+use crate::consts::BUN_VERSION;
 use crate::config::{
     AppConfig, GlobalConfig, NetworkConfig, RepoConfig, load_global_config, load_repo_config,
     save_global_config, save_repo_config, valid_name,
@@ -17,14 +20,7 @@ use utils::{
     check_cmd, get_cmd_version, home_path, is_executable, print, print_info, prompt_confirm,
     prompt_multiselect, run_cmd, run_status, step,
 };
-
-const SANDBOX_PATH: &str = "kafes/sandbox";
-const BUN_PATH: &str = ".bun/bin/bun";
-const BUN_VERSION: &str = "1.4.4";
-const OMP_PATH: &str = ".bun/bin/omp";
-const OMP_VERSION: &str = "18.16.0";
-const GATEWAY_CFG_PATH: &str = ".config/kafes/gateway";
-const TASKS_PATH: &str = "kafes/tasks";
+use crate::consts::BUN_PATH;
 
 fn omp_version_ok(omp: &Path) -> bool {
     Command::new(omp)
@@ -163,8 +159,6 @@ fn setup_providers() -> Result<()> {
     create_dir_all(home_path(SANDBOX_PATH)?)?;
     Ok(())
 }
-
-const PUSH_CFG_PATH: &str = ".config/kafes/push";
 
 fn add_repo() -> Result<()> {
     let mut global = load_global_config()?;
@@ -345,18 +339,6 @@ fn setup_org() -> Result<()> {
         network: prev.and_then(|p| p.network),
     })
 }
-
-const ACL: &str = "kafes-no-lan";
-const ACL_RULES: [&[&str]; 4] = [
-    &[
-        "egress",
-        "action=reject",
-        "destination=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,100.64.0.0/10",
-    ],
-    &["egress", "action=reject", "destination=fc00::/7,fe80::/10"],
-    &["egress", "action=allow"],
-    &["ingress", "action=allow"],
-];
 
 fn setup_acl() -> Result<()> {
     print("Blocking the workshop from the host network...");
