@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 
 pub fn setup_acl() -> Result<()> {
     print("Blocking the workshop from the host network...");
-    // Cache sudo credentials so the captured `sudo lxc` calls below don't prompt.
+    // Cache sudo credentials so the captured `sudo lxc` calls below don't prompt
     run_status("sudo", &["-v"])?;
     let mut global = load_global_config()?;
 

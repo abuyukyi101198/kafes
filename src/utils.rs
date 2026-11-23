@@ -1,11 +1,21 @@
 //! Process and filesystem helpers.
 
-use anyhow::{Context, Result, bail};
+use std::env;
+use anyhow::{Context, Result, bail, ensure};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use crate::consts::TASKS_PATH;
+
+pub fn check_cwd() -> Result<()> {
+    let tasks = home_path(TASKS_PATH)?;
+    let tasks = tasks.canonicalize().unwrap_or(tasks);
+    let cwd = env::current_dir()?;
+    ensure!(!cwd.starts_with(&tasks), "never run kafes from inside {}", tasks.display());
+    Ok(())
+}
 
 pub fn check_cmd(cmd: &str) -> Result<()> {
     which::which(cmd).with_context(|| format!("{cmd} not found"))?;

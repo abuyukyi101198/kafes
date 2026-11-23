@@ -594,6 +594,7 @@ dependencies = [
  "colored",
  "indicatif",
  "inquire",
+ "libc",
  "serde",
  "serde_json",
  "toml",

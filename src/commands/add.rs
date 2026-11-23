@@ -20,7 +20,7 @@ pub fn cmd_add(name: Option<String>) -> Result<()> {
 
 pub fn repo_stages(name: Option<String>) -> Result<()> {
     let mut repo = add_repo(name)?;
-    // Loaded after add_repo, which may have saved the installation ID.
+    // Loaded after add_repo, which may have saved the installation ID
     let global = load_global_config()?;
     setup_check(&global, &mut repo)?;
     setup_verify(&global, &repo)

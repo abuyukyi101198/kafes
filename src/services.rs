@@ -126,7 +126,7 @@ pub fn start_services(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
     if !unit_active(UNIT_PROXY) {
         ensure!(port_free(4100), "port 4100 is in use by something else");
         create_dir_all(&push_cfg)?;
-        // A fresh proxy client credential per proxy start.
+        // A fresh proxy client credential per proxy start
         let token = run_cmd("openssl", &["rand", "-hex", "32"])?
             .trim()
             .to_string();
@@ -167,7 +167,7 @@ pub fn start_services(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
                 "./kafes-push-proxy.ts",
             ],
         )?;
-        // 403 for an unauthenticated, disallowed path: the listener is up.
+        // 403 for an unauthenticated, disallowed path: the listener is up
         ensure!(
             wait_http("http://127.0.0.1:4100/", 403, 30),
             "push proxy did not start; journalctl --user -u {UNIT_PROXY}"
@@ -177,13 +177,19 @@ pub fn start_services(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
     Ok(())
 }
 
-fn stop_proxy() -> bool {
+pub fn stop_proxy() -> bool {
     if !unit_active(UNIT_PROXY) {
         return true;
     }
     print_info("stopping the push proxy (revoking tokens; up to ~30 s)");
     let svc = format!("{UNIT_PROXY}.service");
+    let invocation = run_cmd(
+        "systemctl",
+        &["--user", "show", "-p", "InvocationID", "--value", &svc],
+    )
+    .unwrap_or_default();
     systemctl_user(&["stop", &svc]);
+    print_proxy_log(invocation.trim());
     let result = run_cmd(
         "systemctl",
         &["--user", "show", "-p", "Result", "--value", &svc],
@@ -199,6 +205,33 @@ fn stop_proxy() -> bool {
         );
         false
     }
+}
+
+fn print_proxy_log(invocation: &str) {
+    if invocation.is_empty() {
+        return;
+    }
+    std::thread::sleep(Duration::from_secs(1)); // journald may lag the exit
+    let filter = format!("_SYSTEMD_INVOCATION_ID={invocation}");
+    if let Ok(log) = run_cmd(
+        "journalctl",
+        &["--user", &filter, "--no-pager", "-o", "cat"],
+    ) {
+        for line in log.lines() {
+            let lower = line.to_lowercase();
+            if ["revo", "mint", "fatal"].iter().any(|k| lower.contains(k)) {
+                println!("      {line}");
+            }
+        }
+    }
+}
+
+pub fn revoke_gateway_clients() -> Result<()> {
+    let gateway_cfg = home_path(GATEWAY_CFG_PATH)?;
+    create_dir_all(&gateway_cfg)?;
+    write_atomic(&gateway_cfg.join("clients.json"), "{}\n")?;
+    print_info("gateway client token revoked");
+    Ok(())
 }
 
 pub fn stop_services() -> Result<()> {

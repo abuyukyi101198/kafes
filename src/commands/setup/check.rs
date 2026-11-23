@@ -20,7 +20,6 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     }
     let want = checks_commit(&dir, &src)?;
 
-    // Part 1: publish kafes-checks.
     let remote = match remote_sha(&fork, "kafes-checks")? {
         Some(sha) => sha,
         None => {
@@ -87,7 +86,6 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     }
     print_info(&format!("kafes-checks is on {fork} at {}", &remote[..12]));
 
-    // Part 2: make it the default branch.
     let default_branch = |f: &str| -> Result<String> {
         Ok(gh_api(&format!("/repos/{f}"))?["default_branch"]
             .as_str()
@@ -112,7 +110,6 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
         }
     }
 
-    // Part 3: ruleset on kafes-base/**.
     if rules_ok(&fork) {
         print_info("ruleset on kafes-base/** verified");
         return Ok(());

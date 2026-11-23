@@ -27,7 +27,7 @@ pub fn setup_verify(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
         .with_context(|| format!("check: journalctl --user -u {UNIT_PROXY}"))
     });
 
-    // Stop the services even when the probe failed, then report.
+    // Stop the services even when the probe failed, then report
     let stopped = stop_services();
     probe?;
     stopped
