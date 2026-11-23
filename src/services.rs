@@ -142,7 +142,7 @@ pub fn start_services(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
         let install_id = global
             .app
             .installation_id
-            .context("no App installation; run kafes add")?
+            .context("no App installation; run kafes repo add")?
             .to_string();
         let kafes_fork = repo.kafes_fork(global);
         let token_path = token_file.to_string_lossy();

@@ -1,4 +1,4 @@
-//! `kafes add [repo]`: add a repository under the kafes organization.
+//! `kafes repo add [repo]`: add a repository under the kafes organization.
 
 use crate::commands::setup::{setup_check, setup_verify};
 use crate::config::{

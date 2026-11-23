@@ -29,41 +29,47 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum TaskCmd {
+    /// Start a task on a feature branch of a repository
     New {
-        task: String,
-        feature: String,
+        /// <repo>/<feature-branch>, e.g. app/feat/login
+        target: String,
+        /// Task name; defaults to the branch name with '/' as '-'
         #[arg(long)]
-        repo: Option<String>,
+        name: Option<String>,
     },
-    Shell {
-        task: String,
-    },
-    Stop {
-        task: String,
-    },
-    Start {
-        task: String,
-    },
-    End {
-        task: String,
-        #[arg(long)]
-        repo: Option<String>,
-    },
+    /// Open the task workshop's terminal
+    Shell { task: String },
+    /// Pause: revoke credentials and stop the workshop
+    Stop { task: String },
+    /// Resume a stopped task
+    Start { task: String },
+    /// Finish the task and remove its workshop; also the emergency stop
+    End { task: String },
+}
+
+#[derive(Subcommand)]
+enum RepoCmd {
+    /// Add a repository under the kafes organization
+    Add { repo: Option<String> },
+    /// Remove kafes from one repository
+    Remove { repo: String },
 }
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// One-time host setup (re-runnable)
     Setup,
-    Add {
-        repo: Option<String>,
+    /// Manage repositories
+    Repo {
+        #[command(subcommand)]
+        cmd: RepoCmd,
     },
+    /// Manage the task
     Task {
         #[command(subcommand)]
         cmd: TaskCmd,
     },
-    Remove {
-        repo: String,
-    },
+    /// Remove the whole setup
     Teardown,
 }
 
@@ -81,19 +87,17 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = check_cwd().and_then(|()| match cli.command {
         Cmd::Setup => commands::setup::cmd_setup(),
-        Cmd::Add { repo } => commands::add::cmd_add(repo),
+        Cmd::Repo { cmd } => match cmd {
+            RepoCmd::Add { repo } => commands::repo::add::cmd_add(repo),
+            RepoCmd::Remove { repo } => commands::repo::remove::cmd_remove(&repo),
+        },
         Cmd::Task { cmd } => match cmd {
-            TaskCmd::New {
-                task,
-                feature,
-                repo,
-            } => new::cmd_task_new(&task, &feature, repo),
+            TaskCmd::New { target, name } => new::cmd_task_new(&target, name),
             TaskCmd::Shell { task } => shell::cmd_task_shell(&task),
             TaskCmd::Stop { task } => stop::cmd_task_stop(&task),
             TaskCmd::Start { task } => start::cmd_task_start(&task),
-            TaskCmd::End { task, repo } => end::cmd_task_end(&task, repo),
+            TaskCmd::End { task } => end::cmd_task_end(&task),
         },
-        Cmd::Remove { repo } => commands::remove::cmd_remove(&repo),
         Cmd::Teardown => commands::teardown::cmd_teardown(),
     });
     match result {

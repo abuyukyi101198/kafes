@@ -11,7 +11,7 @@ mod verify;
 pub use check::{setup_check, rules_ok};
 pub use verify::setup_verify;
 
-use crate::commands::add::repo_stages;
+use crate::commands::repo::add::repo_stages;
 use crate::ui::{print, print_info};
 use anyhow::Result;
 
@@ -23,7 +23,7 @@ pub fn cmd_setup() -> Result<()> {
     acl::setup_acl()?;
     repo_stages(None)?;
     print("Setup complete. Start a task with:");
-    print_info("kafes task new <task> <feature-branch>");
+    print_info("kafes task new <repo>/<feature-branch> [--name <task>]");
     Ok(())
 }
 

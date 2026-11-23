@@ -79,7 +79,7 @@ fn repo_path(name: &str) -> Result<PathBuf> {
 pub fn load_repo_config(name: &str) -> Result<RepoConfig> {
     let path = repo_path(name)?;
     let text = read_to_string(&path)
-        .with_context(|| format!("no repository {name}; run kafes add {name}"))?;
+        .with_context(|| format!("no repository {name}; run kafes repo add {name}"))?;
     toml::from_str(&text).with_context(|| format!("{} invalid toml", path.display()))
 }
 
@@ -110,18 +110,6 @@ pub fn list_repos() -> Result<Vec<String>> {
 
     names.sort();
     Ok(names)
-}
-
-pub fn pick_repo(name: Option<String>) -> Result<RepoConfig> {
-    let name = match name {
-        Some(n) => n,
-        None => match list_repos()?.as_slice() {
-            [only] => only.clone(),
-            [] => bail!("no repositories; run kafes add"),
-            many => bail!("several repositories; pass --repo <{}>", many.join("|")),
-        },
-    };
-    load_repo_config(&name)
 }
 
 pub fn delete_repo_config(name: &str) -> Result<()> {

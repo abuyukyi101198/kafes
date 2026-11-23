@@ -1,27 +1,69 @@
 use crate::agent::{push_agent_files, push_credentials};
 use crate::commands::setup::rules_ok;
-use crate::config::{load_global_config, pick_repo, valid_name};
+use crate::config::{load_global_config, load_repo_config, valid_name};
 use crate::constants::{SANDBOX_PATH, TASKS_PATH, WS_HOME};
 use crate::git::{anon_fetch, manual_push, remote_sha};
 use crate::guard::FailureHint;
 use crate::network::{bridge_state, check_workshop_network};
 use crate::services::start_services;
 use crate::settings::{prepare_task_settings, save_task_settings};
-use crate::state::{TaskState, load_active, save_active};
+use crate::state::{TaskRecord, TaskState, load_active, load_record, save_active, save_record};
 use crate::ui::{print, print_info, prompt_confirm};
 use crate::utils::{home_path, run_cmd};
 use crate::workshop::{cache_plugs, open_shell, ws, ws_exec_stdin};
 use anyhow::{Context, Result, bail, ensure};
 use std::fs;
 
-pub fn cmd_task_new(task: &str, feature: &str, repo: Option<String>) -> Result<()> {
-    ensure!(valid_name(task), "invalid task name: {task}");
+fn parse_target(target: &str) -> Result<(&str, &str)> {
+    let (repo, feature) = target
+        .split_once('/')
+        .with_context(|| format!("expected <repo>/<feature-branch>, got {target}"))?;
+    ensure!(valid_name(repo), "invalid repository name: {repo}");
     run_cmd("git", &["check-ref-format", "--branch", feature])
         .with_context(|| format!("invalid branch: {feature}"))?;
+    Ok((repo, feature))
+}
+
+fn task_from_branch(branch: &str) -> String {
+    branch
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_start_matches(|c: char| !c.is_ascii_alphanumeric())
+        .to_string()
+}
+
+pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
+    let (repo_name, feature) = parse_target(target)?;
+    let task = name.unwrap_or_else(|| task_from_branch(feature));
+    let task = task.as_str();
+    ensure!(
+        valid_name(task),
+        "invalid task name: '{task}'; pass one with --name"
+    );
+    // The task name goes into kafes-base/<task> and kafes/<task>
+    run_cmd(
+        "git",
+        &["check-ref-format", "--branch", &format!("kafes/{task}")],
+    )
+    .with_context(|| format!("'{task}' can't be a branch name; pass another with --name"))?;
     let global = load_global_config()?;
-    let repo = pick_repo(repo)?;
+    let repo = load_repo_config(repo_name)?;
     if let Some(active) = load_active()? {
         bail!("task {} is still active; end it first", active.name);
+    }
+    // Task names are unique across repositories until task end
+    if let Some(existing) = load_record(task)? {
+        bail!(
+            "task {task} already exists on {}; end it first or pick another --name",
+            existing.repo
+        );
     }
     let task_dir = home_path(TASKS_PATH)?.join(task);
     ensure!(!task_dir.exists(), "{} already exists", task_dir.display());
@@ -55,9 +97,13 @@ pub fn cmd_task_new(task: &str, feature: &str, repo: Option<String>) -> Result<(
             );
         }
     }
-    save_active(&TaskState {
+    // Record first: from here on, kafes task end <task> knows the repository
+    save_record(&TaskRecord {
         name: task.into(),
         repo: repo.name.clone(),
+    })?;
+    save_active(&TaskState {
+        name: task.into(),
         stopped: false,
     })?;
     let hint = FailureHint::arm(&format!("kafes task end {task}"));

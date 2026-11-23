@@ -1,13 +1,13 @@
 //! `kafes teardown`: dismantle the whole sandbox
 
-use crate::commands::remove::remove_repo;
+use crate::commands::repo::remove::remove_repo;
 use crate::commands::task::end::cmd_task_end;
 use crate::config::{GlobalConfig, list_repos, load_global_config, load_repo_config, valid_name};
 use crate::constants::{
     ACL, BUN_PATH, GATEWAY_CFG_PATH, OMP_PATH, PUSH_CFG_PATH, SANDBOX_PATH, STATE_PATH, TASKS_PATH,
 };
 use crate::services::stop_services;
-use crate::state::load_active;
+use crate::state::{delete_record, list_records, load_active};
 use crate::ui::{print, print_info, print_warning, prompt_confirm, prompt_instruction};
 use crate::utils::{home_path, run_cmd, run_status, tmp_path};
 use crate::workshop::ws;
@@ -48,9 +48,16 @@ pub fn cmd_teardown() -> Result<()> {
 
 fn remove_tasks() -> Result<()> {
     print("1. Tasks and services");
+    // Every recorded task, plus an active one without a record
+    let mut names: Vec<String> = list_records()?.into_iter().map(|r| r.name).collect();
     if let Some(active) = load_active()? {
-        if let Err(e) = cmd_task_end(&active.name, Some(active.repo.clone())) {
-            print_warning(&format!("ending {}: {e:#}", active.name));
+        if !names.contains(&active.name) {
+            names.push(active.name);
+        }
+    }
+    for name in names {
+        if let Err(e) = cmd_task_end(&name) {
+            print_warning(&format!("ending {name}: {e:#}"));
         }
     }
 
@@ -74,6 +81,7 @@ fn remove_tasks() -> Result<()> {
             ws(&name, &["remove", "dev"])
                 .with_context(|| format!("workshop remove failed for {name}; fix it first"))?;
             fs::remove_dir_all(&path)?;
+            delete_record(&name)?;
             print_info(&format!("removed task {name}"));
         }
     }
@@ -200,6 +208,7 @@ fn remove_local_files() -> Result<()> {
 
     // Innermost first; remove_dir refuses non-empty directories on purpose
     let dirs = [
+        state.join("tasks"),
         state,
         sandbox.join("repos"),
         sandbox,

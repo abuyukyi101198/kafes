@@ -4,7 +4,7 @@ use crate::guard::FailureHint;
 use crate::network::{bridge_state, check_workshop_network};
 use crate::services::start_services;
 use crate::settings::{prepare_task_settings, save_task_settings};
-use crate::state::{Want, require_task, save_active};
+use crate::state::{Want, require_task, save_active, task_repo};
 use crate::ui::{print, print_info};
 use crate::workshop::{reset_definition, ws};
 use anyhow::Result;
@@ -13,7 +13,7 @@ use std::time::Duration;
 pub fn cmd_task_start(task: &str) -> Result<()> {
     let mut state = require_task(task, Want::Stopped)?;
     let global = load_global_config()?;
-    let repo = load_repo_config(&state.repo)?;
+    let repo = load_repo_config(&task_repo(task)?)?;
     let subnet = bridge_state(&global)?;
     let hint = FailureHint::arm(&format!("kafes task stop {task}"));
 

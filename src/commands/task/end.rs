@@ -1,17 +1,17 @@
-use crate::config::{
-    GlobalConfig, RepoConfig, load_global_config, load_repo_config, pick_repo, valid_name,
-};
+use crate::config::{GlobalConfig, RepoConfig, load_global_config, load_repo_config, valid_name};
 use crate::constants::{STATE_PATH, TASKS_PATH};
 use crate::git::remote_sha;
 use crate::services::{revoke_gateway_clients, stop_proxy, stop_services};
-use crate::state::{TaskState, clear_active, load_active};
+use crate::state::{clear_active, delete_record, load_active, load_record};
 use crate::ui::{print, print_info, print_warning};
 use crate::utils::home_path;
 use crate::workshop::ws;
 use anyhow::{Context, Result, ensure};
 use std::fs;
 
-pub fn cmd_task_end(task: &str, repo: Option<String>) -> Result<()> {
+/// Also the emergency stop: credentials are revoked and services stopped
+/// before any config or state that could fail is read
+pub fn cmd_task_end(task: &str) -> Result<()> {
     ensure!(valid_name(task), "invalid task name: {task}");
 
     print("Stop host services and revoke credentials");
@@ -21,18 +21,21 @@ pub fn cmd_task_end(task: &str, repo: Option<String>) -> Result<()> {
         print_warning(&format!("{e:#}"));
     }
 
-    // A corrupt state file must not block the rest of the cleanup
-    let active = match load_active() {
-        Ok(a) => a.filter(|s| s.name == task),
-        Err(e) => {
-            print_warning(&format!("{e:#}"));
-            None
-        }
-    };
+    // Corrupt state files must not block the rest of the cleanup
+    let active = load_active()
+        .inspect_err(|e| print_warning(&format!("{e:#}")))
+        .ok()
+        .flatten()
+        .filter(|s| s.name == task);
+    let repo = load_record(task)
+        .inspect_err(|e| print_warning(&format!("{e:#}")))
+        .ok()
+        .flatten()
+        .map(|r| r.repo);
 
     print("Remove the workshop");
     let dir = home_path(TASKS_PATH)?.join(task);
-    match fs::symlink_metadata(&dir) {
+    let gone = match fs::symlink_metadata(&dir) {
         Ok(m) if m.is_dir() => {
             ws(task, &["remove", "dev"]).with_context(|| {
                 format!(
@@ -42,31 +45,47 @@ pub fn cmd_task_end(task: &str, repo: Option<String>) -> Result<()> {
             })?;
             fs::remove_dir_all(&dir)?;
             print_info(&format!("workshop and {} removed", dir.display()));
+            true
         }
-        Ok(_) => print_warning(&format!(
-            "{} is not a plain directory; left in place, inspect it without entering it",
-            dir.display()
-        )),
-        Err(_) => print_warning(&format!(
-            "{} is gone; check 'sudo lxc list' for a leftover container",
-            dir.display()
-        )),
-    }
+        Ok(_) => {
+            print_warning(&format!(
+                "{} is not a plain directory; left in place, inspect it without entering it",
+                dir.display()
+            ));
+            false
+        }
+        Err(_) => {
+            print_warning(&format!(
+                "{} is gone; check 'sudo lxc list' for a leftover container",
+                dir.display()
+            ));
+            true
+        }
+    };
     if active.is_some() {
         clear_active()?;
         let state = home_path(STATE_PATH)?;
         let _ = fs::remove_file(state.join("task-models.yml"));
         let _ = fs::remove_file(state.join("task-config.yml"));
     }
+    // Kept while something is left in place, so the name stays taken
+    if gone {
+        delete_record(task)?;
+    }
 
     print("Review");
-    match resolve_repo(active.as_ref(), repo) {
-        Ok((global, repo)) => {
-            if let Err(e) = review(task, &global, &repo) {
-                print_warning(&format!("review lookup failed: {e:#}"));
+    match repo {
+        None => print_warning(&format!(
+            "no record of {task}'s repository; can't show the review links"
+        )),
+        Some(name) => match load_global_config().and_then(|g| Ok((load_repo_config(&name)?, g))) {
+            Ok((repo, global)) => {
+                if let Err(e) = review(task, &global, &repo) {
+                    print_warning(&format!("review lookup failed: {e:#}"));
+                }
             }
-        }
-        Err(e) => print_warning(&format!("can't show the review links: {e:#}")),
+            Err(e) => print_warning(&format!("can't show the review links: {e:#}")),
+        },
     }
 
     ensure!(
@@ -74,18 +93,6 @@ pub fn cmd_task_end(task: &str, repo: Option<String>) -> Result<()> {
         "the push proxy did not stop cleanly; a token may stay valid for up to 1 h"
     );
     Ok(())
-}
-
-fn resolve_repo(
-    active: Option<&TaskState>,
-    repo: Option<String>,
-) -> Result<(GlobalConfig, RepoConfig)> {
-    let global = load_global_config()?;
-    let repo = match active {
-        Some(s) => load_repo_config(&s.repo)?,
-        None => pick_repo(repo)?,
-    };
-    Ok((global, repo))
 }
 
 fn review(task: &str, global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {

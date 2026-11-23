@@ -3,20 +3,20 @@ use crate::config::{
 };
 use crate::git::kafes_refs;
 use crate::github::gh_api;
-use crate::state::load_active;
+use crate::state::list_records;
 use crate::ui::{print, print_info, print_warning, prompt_confirm, prompt_instruction};
 use crate::utils::run_cmd;
-use anyhow::{Result, ensure};
+use anyhow::{Result, bail, ensure};
 
 pub fn cmd_remove(name: &str) -> Result<()> {
     let global = load_global_config()?;
     let repo = load_repo_config(name)?;
-    if let Some(active) = load_active()? {
-        ensure!(
-            active.repo != repo.name,
+    // Any task on it, active or left behind by a failed end
+    if let Some(task) = list_records()?.into_iter().find(|t| t.repo == repo.name) {
+        bail!(
             "task {} uses {name}; end it first: kafes task end {}",
-            active.name,
-            active.name
+            task.name,
+            task.name
         );
     }
     print_warning(&format!(
