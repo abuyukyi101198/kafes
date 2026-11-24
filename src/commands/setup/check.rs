@@ -4,7 +4,7 @@ use crate::git::{anon_fetch, git_stdin, manual_push, remote_sha};
 use crate::github::gh_api;
 use crate::profile::{check_path, load_profile};
 use crate::ui::{self, Manual};
-use crate::utils::{home_path, run_cmd, write_atomic_mode};
+use crate::utils::{run_cmd, write_atomic_mode};
 use anyhow::{Context, Result, bail};
 use std::path::Path;
 
@@ -17,7 +17,6 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     let profile = load_profile(&repo.name)?;
     let src = check_path(&repo.name)?;
     write_atomic_mode(&src, &profile.check_workflow()?, 0o644)?;
-    old_worktree_gone(&dir)?;
     let want = checks_commit(&dir, &src)?;
 
     let remote = match remote_sha(&fork, "kafes-checks")? {
@@ -179,40 +178,6 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     }
 
     ui::done("ruleset on kafes-base/** verified");
-    Ok(())
-}
-
-fn old_worktree_gone(dir: &Path) -> Result<()> {
-    let old = home_path("kafes/checks")?;
-    let line = format!("worktree {}", old.display());
-    let registered = || -> Result<bool> {
-        let list = run_cmd(
-            "git",
-            &[
-                "-C",
-                &dir.to_string_lossy(),
-                "worktree",
-                "list",
-                "--porcelain",
-            ],
-        )?;
-        Ok(list.lines().any(|l| l == line))
-    };
-    if !registered()? {
-        return Ok(());
-    }
-    let (o, d) = (old.display(), dir.display());
-    Manual::new("Remove the worktree an earlier kafes left behind")
-        .step(format!("Check {o} holds nothing you need:"))
-        .cmd(format!("git -C '{o}' status --short"))
-        .step("Remove it:")
-        .cmd(format!("git -C '{d}' worktree remove '{o}'"))
-        .text("if the directory is already gone:")
-        .cmd(format!("git -C '{d}' worktree prune"))
-        .confirm()?;
-    if registered()? {
-        bail!("the worktree is still registered");
-    }
     Ok(())
 }
 
