@@ -168,7 +168,7 @@ proxy, the edit-rule check or the isolation rules need a matching update to
 the [design document](docs/design.md).
 
 To report a security issue, use
-[GitHub's private vulnerability reporting](../../security/advisories/new)
+[GitHub's private vulnerability reporting](https://github.com/abuyukyi101198/kafes/security/advisories/new)
 rather than a public issue.
 
 ---
