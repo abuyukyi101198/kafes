@@ -1,14 +1,14 @@
 use crate::config::{GlobalConfig, RepoConfig};
 use crate::constants::{PUSH_CFG_PATH, UNIT_PROXY};
 use crate::services::{start_services, stop_services};
-use crate::ui::{print, print_info, step};
+use crate::ui::{self, step};
 use crate::utils::{home_path, run_cmd};
 use anyhow::{Context, Result};
 
 pub fn setup_verify(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
-    print("Verifying the services...");
+    ui::section("Verify the services");
     start_services(global, repo)?;
-    print_info("broker, gateway and push proxy are running");
+    ui::done("broker, gateway and push proxy are running");
 
     let kafes_fork = repo.kafes_fork(global);
     let gitconfig = home_path(PUSH_CFG_PATH)?.join("client.gitconfig");

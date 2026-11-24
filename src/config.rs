@@ -36,7 +36,7 @@ fn config_path() -> Result<PathBuf> {
 pub fn load_global_config() -> Result<GlobalConfig> {
     let path = config_path()?;
     let text = read_to_string(&path)
-        .with_context(|| format!("{} missing; run kafes setup first", path.display()))?;
+        .with_context(|| format!("{} missing; run kafes init first", path.display()))?;
     toml::from_str(&text).with_context(|| format!("{} invalid toml", path.display()))
 }
 
@@ -114,5 +114,5 @@ pub fn list_repos() -> Result<Vec<String>> {
 pub fn delete_repo_config(name: &str) -> Result<()> {
     crate::profile::delete_repo_dir(name)?;
     let path = repo_path(name)?;
-    std::fs::remove_file(&path).with_context(|| format!("can't remove {}", path.display()))
+    std::fs::remove_file(&path).with_context(|| format!("cannot remove {}", path.display()))
 }

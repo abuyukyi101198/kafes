@@ -1,5 +1,5 @@
 use crate::constants::{OMP_PATH, SANDBOX_PATH, STATE_PATH, WS_HOME};
-use crate::ui::{print_info, print_warning};
+use crate::ui;
 use crate::utils::{home_path, run_cmd_in, write_atomic};
 use anyhow::{Context, Result, ensure};
 use serde_json::{Map, Value, json};
@@ -84,7 +84,7 @@ fn host_settings() -> Result<HostSettings> {
         &omp,
         &["config", "list", "--scope", "global", "--json"],
     )
-    .context("omp config list failed on the host")?;
+    .context("cannot read the host's omp settings")?;
     let list: Map<String, Value> =
         serde_json::from_str(&out).context("omp config list: bad JSON")?;
 
@@ -150,7 +150,7 @@ fn served_providers() -> Result<BTreeSet<String>> {
     let omp = home_path(OMP_PATH)?.to_string_lossy().into_owned();
     let sandbox = home_path(SANDBOX_PATH)?;
     let token = run_cmd_in(Some(&sandbox), &omp, &["auth-gateway", "token"])
-        .context("can't read the gateway token")?;
+        .context("cannot read the gateway token")?;
     let agent: Agent = Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(15)))
         .build()
@@ -159,7 +159,7 @@ fn served_providers() -> Result<BTreeSet<String>> {
         .get("http://127.0.0.1:4000/v1/models")
         .header("Authorization", &format!("Bearer {}", token.trim()))
         .call()
-        .context("can't list the gateway's models")?
+        .context("cannot list the gateway's models")?
         .body_mut()
         .read_json()?;
     let data = models["data"]
@@ -202,9 +202,10 @@ pub fn prepare_task_settings() -> Result<TaskSettings> {
         if served.contains(&p) {
             providers.push(p);
         } else if referenced.contains(&p) {
-            print_warning(&format!(
-                "your settings use '{p}', which the host gateway doesn't serve, so roles and fallbacks \
-                 on it will fail in the workshop. Log it in on the host (omp auth-broker login {p})"
+            ui::warn(&format!(
+                "your settings use '{p}', which the host gateway does not serve, so roles and fallbacks \
+                 on it will fail in the workshop; log it in on the host: {}",
+                ui::cmd(&format!("omp auth-broker login {p}"))
             ));
         }
     }
@@ -213,17 +214,16 @@ pub fn prepare_task_settings() -> Result<TaskSettings> {
         "the host gateway serves none of the providers your settings use"
     );
 
-    print_info(&format!("host settings copied: {}", summary(&host.copied)));
     let dropped = if host.dropped.is_empty() {
         "none".to_string()
     } else {
         host.dropped.join(", ")
     };
-    print_info(&format!("host settings kept back: {dropped}"));
-    print_info(&format!(
-        "providers routed through the gateway: {}",
-        providers.join(" ")
-    ));
+    ui::fields(&[
+        ("host settings copied", summary(&host.copied)),
+        ("host settings kept back", dropped),
+        ("providers via the gateway", providers.join(" ")),
+    ]);
     Ok(TaskSettings {
         config: host.copied,
         providers,

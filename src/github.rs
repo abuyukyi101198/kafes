@@ -16,7 +16,7 @@ pub fn gh_api(path: &str) -> Result<Value> {
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "kafes")
         .call()
-        .with_context(|| format!("GET {url} failed"))?
+        .with_context(|| format!("cannot read {url}"))?
         .body_mut()
         .read_json::<Value>()?;
     Ok(value)

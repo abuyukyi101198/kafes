@@ -9,7 +9,7 @@ use crate::profile::load_profile;
 use crate::services::start_services;
 use crate::settings::{prepare_task_settings, save_task_settings};
 use crate::state::{TaskRecord, TaskState, load_active, load_record, save_active, save_record};
-use crate::ui::{print, print_info, prompt_confirm};
+use crate::ui;
 use crate::utils::{home_path, run_cmd};
 use crate::workshop::{cache_plugs, open_shell, reset_definition, ws, ws_exec_stdin};
 use anyhow::{Context, Result, bail, ensure};
@@ -40,31 +40,35 @@ fn task_from_branch(branch: &str) -> String {
         .to_string()
 }
 
-pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
+pub fn cmd_task_create(target: &str, name: Option<String>) -> Result<()> {
     let (repo_name, feature) = parse_target(target)?;
     let task = name.unwrap_or_else(|| task_from_branch(feature));
     let task = task.as_str();
     ensure!(
         valid_name(task),
-        "invalid task name: '{task}'; pass one with --name"
+        "invalid task name: \"{task}\"; pass another with --name"
     );
     // The task name goes into kafes-base/<task> and kafes/<task>
     run_cmd(
         "git",
         &["check-ref-format", "--branch", &format!("kafes/{task}")],
     )
-    .with_context(|| format!("'{task}' can't be a branch name; pass another with --name"))?;
+    .with_context(|| format!("invalid task name: \"{task}\" cannot be part of a branch name; pass another with --name"))?;
     let global = load_global_config()?;
     let repo = load_repo_config(repo_name)?;
     // Before anything starts: a broken profile must not leave a half-made task
     let profile = load_profile(repo_name)?;
     if let Some(active) = load_active()? {
-        bail!("task {} is still active; end it first", active.name);
+        bail!(
+            "task {} is still active; delete it first: kafes task delete {}",
+            active.name,
+            active.name
+        );
     }
-    // Task names are unique across repositories until task end
+    // Task names are unique across repositories until task delete
     if let Some(existing) = load_record(task)? {
         bail!(
-            "task {task} already exists on {}; end it first or pick another --name",
+            "task {task} already exists on {}; delete it first or pass another --name",
             existing.repo
         );
     }
@@ -73,11 +77,11 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
     let fork = repo.fork(&global);
     ensure!(
         rules_ok(&fork),
-        "the kafes-base/** ruleset is missing or changed; re-run setup"
+        "the kafes-base/** ruleset is missing or changed; run kafes repo add {repo_name} again"
     );
     let subnet = bridge_state(&global)?;
 
-    print("Base branch");
+    ui::section(&format!("Task {task}: base branch"));
     let base = format!("kafes-base/{task}");
     let sha =
         remote_sha(&fork, feature)?.with_context(|| format!("{feature} not found on {fork}"))?;
@@ -89,18 +93,20 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
                 &fork,
                 &sha,
                 &format!("{sha}:refs/heads/{base}"),
-                &format!("Create this task's base branch {base} on {fork}, at {feature}."),
+                &format!("Create this task's base branch {base} on {fork}, at {feature}"),
             )?;
-            print_info(&format!("created {base} at {feature} ({sha})"));
         }
         Some(existing) => {
             ensure!(
-                prompt_confirm(&format!("{base} already exists at {existing}; reuse it?"))?,
+                ui::confirm(&format!(
+                    "{base} already exists at {}; reuse it?",
+                    &existing[..12]
+                ))?,
                 "stopped"
             );
         }
     }
-    // Record first: from here on, kafes task end <task> knows the repository
+    // Record first: from here on, kafes task delete <task> knows the repository
     save_record(&TaskRecord {
         name: task.into(),
         repo: repo.name.clone(),
@@ -109,22 +115,23 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
         name: task.into(),
         stopped: false,
     })?;
-    let hint = FailureHint::arm(&format!("kafes task end {task}"));
+    let hint = FailureHint::arm(&format!("kafes task delete {task}"));
 
-    print("Host services");
+    ui::section(&format!("Task {task}: host services"));
     start_services(&global, &repo)?;
     let settings = prepare_task_settings()?;
     save_task_settings(&settings)?;
-    print("Launch the task workshop");
+    ui::done("broker, gateway and push proxy are running");
+
+    ui::section(&format!("Task {task}: launch the workshop"));
     fs::create_dir_all(task_dir.join(".workshop"))?;
     reset_definition(task, &profile.dev_yaml())?;
     ws(task, &["launch", "dev"])?;
-    print_info("reading the workshop's connections");
     for plug in cache_plugs(task)? {
-        print_info(&format!("disconnecting package cache {plug}"));
+        ui::detail(&format!("disconnecting package cache {plug}"));
         ws(task, &["disconnect", &plug])?;
     }
-    print_info("connecting the gateway and push tunnels");
+    ui::detail("connecting the gateway and push tunnels");
     ws(
         task,
         &[
@@ -139,13 +146,13 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
     )?;
     check_workshop_network(task, &subnet)?;
 
-    print("Set up the workshop");
+    ui::section(&format!("Task {task}: set up the workshop"));
     let script = fs::read_to_string(home_path(SANDBOX_PATH)?.join("setup-workshop.sh"))?;
     ws_exec_stdin(task, "cat > /tmp/setup-workshop.sh", &script)?;
     ws(task, &["exec", "dev", "--", "sh", "/tmp/setup-workshop.sh"])?;
     let tools = &profile.workshop;
     if !tools.apt.is_empty() {
-        print_info(&format!("apt packages: {}", tools.apt.join(" ")));
+        ui::info(&format!("apt packages: {}", tools.apt.join(" ")));
         let mut args = vec![
             "exec",
             "dev",
@@ -160,14 +167,15 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
         ws(task, &args)?;
     }
     for step in &tools.setup {
-        print_info(&format!("$ {step}"));
+        ui::info(&ui::cmd(&format!("$ {step}")));
         ws(task, &["exec", "dev", "--", "sh", "-c", step])?;
     }
     push_agent_files(task, &repo.name)?;
     push_credentials(task, &settings.providers)?;
+    ui::done("workshop ready");
 
     let src = format!("{WS_HOME}/src/{}", repo.name);
-    print(&format!("Clone {fork} at {base}"));
+    ui::section(&format!("Task {task}: clone {fork} at {base}"));
     let url = format!("https://github.com/{fork}.git");
     let branch = format!("kafes/{task}");
     let remote = format!("http://localhost:4100/{}.git", repo.kafes_fork(&global));
@@ -186,9 +194,10 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
     git(&["remote", "add", "kafes", &remote])?;
     git(&["config", "user.name", &global.app.bot_name])?;
     git(&["config", "user.email", &global.app.bot_email])?;
+    ui::done(&format!("cloned into {src} on branch {branch}"));
     if let Some(install) = &profile.project.install {
-        print("Install the project");
-        print_info(&format!("$ {install}"));
+        ui::section(&format!("Task {task}: install the project"));
+        ui::info(&ui::cmd(&format!("$ {install}")));
         let script = format!("cd '{src}' && {install}");
         let env: Vec<String> = profile
             .project
@@ -205,18 +214,27 @@ pub fn cmd_task_new(target: &str, name: Option<String>) -> Result<()> {
     }
     hint.disarm();
 
-    print(&format!("Task {task} is ready"));
-    print_info(&format!(
-        "kafes task shell {task}   open its terminal; run kafes-omp there to start the agent"
-    ));
-    print_info(&format!(
-        "kafes task stop {task}    pause: revoke its credentials and stop the workshop"
-    ));
-    print_info(&format!(
-        "kafes task end {task}     finish, once the agent has pushed {branch}"
-    ));
-    if prompt_confirm("Open the workshop terminal now?")? {
-        open_shell(task)?;
+    ui::section(&format!("Task {task} is ready"));
+    ui::next(&[
+        (
+            format!("kafes task shell {task}"),
+            "open its terminal; run kafes-omp there to start the agent",
+        ),
+        (
+            format!("kafes task stop {task}"),
+            "pause: revoke its credentials and stop the workshop",
+        ),
+        (
+            format!("kafes task delete {task}"),
+            "finish, once the agent has pushed its branch",
+        ),
+    ]);
+    // Optional: the task is complete either way
+    if ui::interactive() {
+        eprintln!();
+        if ui::confirm("Open the workshop terminal now?")? {
+            open_shell(task)?;
+        }
     }
     Ok(())
 }

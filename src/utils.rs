@@ -38,7 +38,7 @@ pub fn run_cmd_in(dir: Option<&Path>, cmd: &str, args: &[&str]) -> Result<String
     let out = c
         .args(args)
         .output()
-        .with_context(|| format!("failed to start {cmd}"))?;
+        .with_context(|| format!("cannot start {cmd}"))?;
     if !out.status.success() {
         bail!(
             "{cmd} {} exited with status {}: {}",
@@ -54,7 +54,7 @@ pub fn run_status(cmd: &str, args: &[&str]) -> Result<()> {
     let status = Command::new(cmd)
         .args(args)
         .status()
-        .with_context(|| format!("failed to start {cmd}"))?;
+        .with_context(|| format!("cannot start {cmd}"))?;
     if !status.success() {
         bail!("{cmd} {} exited with status {status}", args.join(" "));
     }
@@ -67,7 +67,7 @@ pub fn get_cmd_version(cmd: &str, args: &[&str], index: usize) -> Result<String>
         .next()
         .and_then(|line| line.split_whitespace().nth(index))
         .map(str::to_string)
-        .with_context(|| format!("can't read {cmd} version"))
+        .with_context(|| format!("cannot read the {cmd} version"))
 }
 
 pub fn home_path(rel: &str) -> Result<PathBuf> {
@@ -96,16 +96,16 @@ pub fn write_atomic(path: &Path, contents: &str) -> Result<()> {
         .create_new(true)
         .mode(0o600)
         .open(&tmp)
-        .with_context(|| format!("can't create {}", tmp.display()))?;
+        .with_context(|| format!("cannot create {}", tmp.display()))?;
     file.write_all(contents.as_bytes())?;
     file.sync_all()?;
 
-    fs::rename(&tmp, path).with_context(|| format!("can't replace {}", path.display()))?;
+    fs::rename(&tmp, path).with_context(|| format!("cannot replace {}", path.display()))?;
     Ok(())
 }
 
 pub fn write_atomic_mode(path: &Path, contents: &str, mode: u32) -> Result<()> {
     write_atomic(path, contents)?;
     fs::set_permissions(path, fs::Permissions::from_mode(mode))
-        .with_context(|| format!("can't chmod {}", path.display()))
+        .with_context(|| format!("cannot set the mode of {}", path.display()))
 }

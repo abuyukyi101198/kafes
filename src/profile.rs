@@ -3,7 +3,7 @@
 
 use crate::config::{REPOS_PATH, valid_name};
 use crate::constants::{CHECK_YML, DEV_YAML, PRESETS, PROMPT};
-use crate::ui::print_info;
+use crate::ui;
 use crate::utils::{home_path, tmp_path, write_atomic};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -181,40 +181,33 @@ impl Profile {
                 v.join(" ")
             }
         };
-        let list = |title: &str, v: &[String]| {
-            print_info(&format!(
-                "{title}:{}",
-                if v.is_empty() { " none" } else { "" }
-            ));
-            for item in v {
-                print_info(&format!("    {item}"));
-            }
-        };
-        if let Some(p) = &self.preset {
-            print_info(&format!(
-                "preset: {p} v{}",
-                self.preset_version.unwrap_or(0)
-            ));
-        }
-        if !self.description.is_empty() {
-            print_info(&self.description);
-        }
         let (w, p) = (&self.workshop, &self.project);
-        print_info(&format!("node SDK: {}", w.node));
-        print_info(&format!("apt packages: {}", none(&w.apt)));
-        list("setup commands", &w.setup);
-        print_info(&format!(
-            "install: {}",
-            p.install.as_deref().unwrap_or("none")
-        ));
         let env: Vec<String> = p.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        print_info(&format!("install env: {}", none(&env)));
-        list("allowed paths", &self.rules.allowed);
-        list("rejected paths", &self.rules.rejected);
-        list("review closely", &self.rules.review_closely);
-        print_info(
-            "always rejected: dotfiles, binaries, symlinks, executables, submodules, unusual path characters",
-        );
+        let preset = match &self.preset {
+            Some(name) => format!("{name} v{}", self.preset_version.unwrap_or(0)),
+            None => "none".into(),
+        };
+        let description = if self.description.is_empty() {
+            "none".to_string()
+        } else {
+            self.description.clone()
+        };
+        ui::fields(&[
+            ("preset", preset),
+            ("description", description),
+            ("node SDK", w.node.clone()),
+            ("apt packages", none(&w.apt)),
+            ("install", p.install.clone().unwrap_or_else(|| "none".into())),
+            ("install env", none(&env)),
+        ]);
+        ui::list("setup commands", &w.setup);
+        ui::list("allowed paths", &self.rules.allowed);
+        ui::list("rejected paths", &self.rules.rejected);
+        ui::list("review closely", &self.rules.review_closely);
+        ui::fields(&[(
+            "always rejected",
+            "dotfiles, binaries, symlinks, executables, submodules, unusual path characters".into(),
+        )]);
     }
 }
 

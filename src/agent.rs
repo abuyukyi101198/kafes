@@ -1,7 +1,7 @@
 use crate::constants::GATEWAY_CFG_PATH;
 use crate::constants::{PUSH_CFG_PATH, SANDBOX_PATH, STATE_PATH, WS_HOME};
 use crate::profile::load_profile;
-use crate::ui::print_info;
+use crate::ui;
 use crate::utils::{home_path, run_cmd, write_atomic};
 use crate::workshop::{ws, ws_exec_stdin, ws_output};
 use anyhow::{Result, ensure, Context};
@@ -12,7 +12,7 @@ use std::fs::read_to_string;
 fn agent_launcher(repo: &str) -> String {
     format!(
         r#"#!/bin/sh
-# Rewritten by kafes on every task new, start and shell; edits don't last
+# Rewritten by kafes on every task create, start and shell; edits do not last
 exec "{WS_HOME}/.local/bin/omp" \
   --cwd "{WS_HOME}/src/{repo}" \
   --config "{WS_HOME}/.config/kafes-policy.yml" \
@@ -116,6 +116,6 @@ pub fn push_credentials(task: &str, providers: &[String]) -> Result<()> {
         code.trim() == "200",
         "the gateway is not reachable from the workshop"
     );
-    print_info("credentials issued; the gateway loads its token within 10 s");
+    ui::done("credentials issued; the gateway loads its token within 10 s");
     Ok(())
 }

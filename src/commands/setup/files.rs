@@ -1,5 +1,5 @@
 use crate::constants::{BUN_VERSION, OMP_VERSION, POLICY, PROXY_TS, SANDBOX_PATH, SETUP_WS};
-use crate::ui::{print, print_info, print_warning, prompt_confirm};
+use crate::ui;
 use crate::utils::{home_path, tmp_path, write_atomic_mode};
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -7,18 +7,22 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 pub fn setup_proxy_files() -> Result<()> {
-    print("Setting up trusted files and push proxy...");
+    ui::section("Trusted files and push proxy");
     write_trusted_files()?;
     let kafes = install_self()?;
     link_command(&kafes)?;
     let sandbox = home_path(SANDBOX_PATH)?;
-    print_info(&format!(
+    ui::done(&format!(
         "trusted files written to {} (no secrets)",
         sandbox.display()
     ));
 
     let proxy = sandbox.join("kafes-push-proxy.ts");
-    if !prompt_confirm(&format!("Have you read {}?", proxy.display()))? {
+    ui::info(&format!("push proxy: {}", proxy.display()));
+    if !ui::confirm_help(
+        "Have you read it?",
+        "it holds the App key and mints the agent's push tokens",
+    )? {
         bail!("read the proxy before running it");
     }
     Ok(())
@@ -58,10 +62,10 @@ fn install_self() -> Result<PathBuf> {
     let exe = std::env::current_exe()?.canonicalize()?;
     if exe != dest {
         let tmp = tmp_path(&dest);
-        fs::copy(&exe, &tmp).context("can't copy the kafes binary")?;
+        fs::copy(&exe, &tmp).context("cannot copy the kafes binary")?;
         fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
         fs::rename(&tmp, &dest)?;
-        print_info(&format!("copied kafes into {}", dest.display()));
+        ui::done(&format!("copied kafes into {}", dest.display()));
     }
     Ok(dest)
 }
@@ -73,23 +77,23 @@ fn link_command(target: &Path) -> Result<()> {
     match fs::read_link(&link) {
         Ok(current) if current == target => {}
         Ok(_) => {
-            print_warning(&format!(
-                "{} exists and isn't kafes's link; left alone",
+            ui::warn(&format!(
+                "{} exists and is not the kafes link; left alone",
                 link.display()
             ));
             return Ok(());
         }
         Err(_) if link.exists() => {
-            print_warning(&format!(
-                "{} exists and isn't a link; left alone",
+            ui::warn(&format!(
+                "{} exists and is not a link; left alone",
                 link.display()
             ));
             return Ok(());
         }
         Err(_) => {
             std::os::unix::fs::symlink(target, &link)?;
-            print_info(&format!(
-                "linked {} -> {}",
+            ui::done(&format!(
+                "linked {} → {}",
                 link.display(),
                 target.display()
             ));
@@ -99,12 +103,11 @@ fn link_command(target: &Path) -> Result<()> {
     let bin_dir = home_path(".local/bin")?;
     let on_path =
         std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d == bin_dir));
-    if on_path {
-        print_info("from now on, run it as: kafes");
-    } else {
-        print_warning(
-            "~/.local/bin is not on PATH yet; add: export PATH=\"$HOME/.local/bin:$PATH\"",
-        );
+    if !on_path {
+        ui::warn(&format!(
+            "~/.local/bin is not on PATH yet; add: {}",
+            ui::cmd("export PATH=\"$HOME/.local/bin:$PATH\"")
+        ));
     }
     Ok(())
 }

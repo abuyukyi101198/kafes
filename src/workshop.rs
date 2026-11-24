@@ -1,6 +1,6 @@
 use crate::constants::TASKS_PATH;
 use crate::guard::Interactive;
-use crate::ui::{print, print_info};
+use crate::ui;
 use crate::utils::{home_path, write_atomic};
 use anyhow::{Context, Result, bail, ensure};
 use std::fs;
@@ -19,8 +19,8 @@ pub fn ws(task: &str, args: &[&str]) -> Result<()> {
     let status = ws_cmd(task)?
         .args(args)
         .status()
-        .context("failed to run workshop")?;
-    ensure!(status.success(), "workshop {} failed", args.join(" "));
+        .context("cannot run workshop")?;
+    ensure!(status.success(), "cannot run workshop {}", args.join(" "));
     Ok(())
 }
 
@@ -28,10 +28,10 @@ pub fn ws_output(task: &str, args: &[&str]) -> Result<String> {
     let out = ws_cmd(task)?
         .args(args)
         .output()
-        .context("failed to run workshop")?;
+        .context("cannot run workshop")?;
     if !out.status.success() {
         bail!(
-            "workshop {} failed: {}",
+            "cannot run workshop {}: {}",
             args.join(" "),
             String::from_utf8_lossy(&out.stderr).trim()
         );
@@ -44,13 +44,13 @@ pub fn ws_exec_stdin(task: &str, script: &str, input: &str) -> Result<()> {
         .args(["exec", "dev", "--", "sh", "-c", script])
         .stdin(Stdio::piped())
         .spawn()
-        .context("failed to run workshop")?;
+        .context("cannot run workshop")?;
     child
         .stdin
         .take()
         .context("no stdin")?
         .write_all(input.as_bytes())?;
-    ensure!(child.wait()?.success(), "workshop exec failed: {script}");
+    ensure!(child.wait()?.success(), "cannot run in the workshop: {script}");
     Ok(())
 }
 
@@ -142,9 +142,14 @@ pub fn reset_definition(task: &str, dev_yaml: &str) -> Result<()> {
 }
 
 pub fn open_shell(task: &str) -> Result<()> {
-    print(&format!("Workshop terminal for {task}"));
-    print_info("Run kafes-omp to start the agent; kafes-omp -c continues the last session.");
-    print_info("Leave with exit. The workshop keeps running until kafes task stop or end.");
+    ui::require_interactive("open the workshop terminal")?;
+    ui::section(&format!("Workshop terminal for {task}"));
+    ui::fields(&[
+        ("kafes-omp", "start the agent".into()),
+        ("kafes-omp -c", "continue the last session".into()),
+        ("exit", "leave; the workshop keeps running until task stop or delete".into()),
+    ]);
+    eprintln!();
     let _interactive = Interactive::begin();
     let _ = ws_cmd(task)?
         .args(["shell", "dev"])

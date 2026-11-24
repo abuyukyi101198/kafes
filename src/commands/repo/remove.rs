@@ -4,25 +4,25 @@ use crate::config::{
 use crate::git::kafes_refs;
 use crate::github::gh_api;
 use crate::state::list_records;
-use crate::ui::{print, print_info, print_warning, prompt_confirm, prompt_instruction};
+use crate::ui::{self, Manual};
 use crate::utils::run_cmd;
 use anyhow::{Result, bail, ensure};
 
 pub fn cmd_remove(name: &str) -> Result<()> {
     let global = load_global_config()?;
     let repo = load_repo_config(name)?;
-    // Any task on it, active or left behind by a failed end
+    // Any task on it, active or left behind by a failed delete
     if let Some(task) = list_records()?.into_iter().find(|t| t.repo == repo.name) {
         bail!(
-            "task {} uses {name}; end it first: kafes task end {}",
+            "task {} uses {name}; delete it first: kafes task delete {}",
             task.name,
             task.name
         );
     }
-    print_warning(&format!(
-        "This removes kafes from {name} only; other repositories are kept."
+    ui::warn(&format!(
+        "this removes kafes from {name} only; other repositories are kept"
     ));
-    ensure!(prompt_confirm("Continue?")?, "stopped");
+    ensure!(ui::confirm_danger("Continue?", None)?, "stopped");
     remove_repo(&global, &repo)
 }
 
@@ -32,21 +32,22 @@ pub fn remove_repo(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
     let kafes_fork = repo.kafes_fork(global);
     let dir = repo.checkout.to_string_lossy();
 
-    print(&format!("1. Settings on {fork}"));
+    ui::section(&format!("Remove {name}: settings on {fork}"));
     let before = repo
         .default_branch_before
         .as_deref()
         .unwrap_or("its original branch");
-    prompt_instruction(&[
-        &format!("Close leftover kafes and dummy PRs on {fork} without merging."),
-        &format!("Delete the kafes-base/** ruleset: https://github.com/{fork}/settings/rules"),
-        &format!("Restore the default branch of {fork} to '{before}':"),
-        &format!("  https://github.com/{fork}/settings"),
-        "Delete the KAFES_FORK and KAFES_EMAIL variables:",
-        &format!("  https://github.com/{fork}/settings/variables/actions"),
-        "Restore the Actions setting if you changed it only for this:",
-        &format!("  https://github.com/{fork}/settings/actions"),
-    ])?;
+    Manual::new(format!("Undo the kafes settings on {fork}"))
+        .step("Close leftover kafes and dummy PRs without merging")
+        .step("Delete the kafes-base ruleset:")
+        .link(format!("https://github.com/{fork}/settings/rules"))
+        .step(format!("Restore the default branch to {before}:"))
+        .link(format!("https://github.com/{fork}/settings"))
+        .step("Delete the KAFES_FORK and KAFES_EMAIL variables:")
+        .link(format!("https://github.com/{fork}/settings/variables/actions"))
+        .step("Restore the Actions setting, if you changed it only for kafes:")
+        .link(format!("https://github.com/{fork}/settings/actions"))
+        .confirm()?;
     if let Some(b) = &repo.default_branch_before {
         let current = gh_api(&format!("/repos/{fork}"))?["default_branch"]
             .as_str()
@@ -56,26 +57,24 @@ pub fn remove_repo(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
             current == *b,
             "the default branch of {fork} is {current}, not {b} yet"
         );
+        ui::done(&format!("the default branch is {b} again"));
     }
 
-    print(&format!("2. kafes branches on {fork}"));
+    ui::section(&format!("Remove {name}: kafes branches on {fork}"));
     let refs = kafes_refs(&fork)?;
     if refs.is_empty() {
-        print_info("none left");
+        ui::done("none left");
     } else {
-        for r in &refs {
-            print_info(&format!("    {r}"));
-        }
-        if prompt_confirm("Delete these branches? (save reviewed work first)")? {
-            let push = format!("  git -C '{dir}' push origin --delete {}", refs.join(" "));
-            prompt_instruction(&[
-                "Delete them yourself, in another terminal, with your own credentials:",
-                "",
-                &push,
-                "",
-            ])?;
-            if !kafes_refs(&fork)?.is_empty() {
-                print_warning(&format!("some kafes branches are still on {fork}"));
+        ui::list("branches", &refs);
+        if ui::confirm_danger("Delete these branches?", Some("save reviewed work first"))? {
+            Manual::new("Delete the branches")
+                .step("Run this yourself, in another terminal, with your own credentials:")
+                .cmd(format!("git -C '{dir}' push origin --delete {}", refs.join(" ")))
+                .confirm()?;
+            if kafes_refs(&fork)?.is_empty() {
+                ui::done("branches deleted");
+            } else {
+                ui::warn(&format!("some kafes branches are still on {fork}"));
             }
         }
     }
@@ -92,29 +91,35 @@ pub fn remove_repo(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
         ],
     )
     .is_ok();
-    if has_local && prompt_confirm(&format!("Delete the local kafes-checks branch in {dir}?"))? {
+    if has_local
+        && ui::confirm_danger(
+            &format!("Delete the local kafes-checks branch in {dir}?"),
+            None,
+        )?
+    {
         run_cmd("git", &["-C", &dir, "branch", "-D", "kafes-checks"])?;
-        print_info("local kafes-checks deleted");
+        ui::done("local kafes-checks deleted");
     }
 
-    print("3. The kafes fork");
+    ui::section(&format!("Remove {name}: the kafes fork"));
     let owner = &global.kafes_owner;
-    let mut lines = Vec::new();
+    let mut manual = Manual::new(format!("Remove {kafes_fork}"));
     if let Some(id) = global.app.installation_id {
-        lines.push("Remove the kafes fork from the App's repository access:".to_string());
-        lines.push(format!(
-            "  https://github.com/organizations/{owner}/settings/installations/{id}"
-        ));
-        lines.push(format!("  Repository access: remove {kafes_fork}. Save."));
+        manual = manual
+            .step("Remove it from the App's repository access:")
+            .link(format!(
+                "https://github.com/organizations/{owner}/settings/installations/{id}"
+            ))
+            .text(format!("Repository access → remove {kafes_fork} → Save"));
     }
-    lines.push(format!(
-        "Delete the kafes fork: https://github.com/{kafes_fork}/settings -> Delete this repository"
-    ));
-    lines.push("Never delete your own fork or upstream.".to_string());
-    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
-    prompt_instruction(&refs)?;
+    manual
+        .step("Delete it:")
+        .link(format!("https://github.com/{kafes_fork}/settings"))
+        .text("→ Delete this repository")
+        .text("never delete your own fork or upstream")
+        .confirm()?;
 
     delete_repo_config(name)?;
-    print(&format!("{name} removed"));
+    ui::done(&format!("{name} removed"));
     Ok(())
 }

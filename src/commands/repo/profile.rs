@@ -6,7 +6,7 @@ use crate::profile::{
     Profile, check_path, draft_path, load_profile, load_profile_text, parse_profile, preset_names,
     preset_text, save_profile_text,
 };
-use crate::ui::{print, print_info, print_warning, prompt_confirm, prompt_select};
+use crate::ui;
 use crate::utils::{run_status, write_atomic};
 use anyhow::{Context, Result, bail, ensure};
 use std::fs;
@@ -17,22 +17,23 @@ pub fn choose_profile(name: &str, preset: Option<String>) -> Result<Profile> {
     let text = match (preset, load_profile_text(name)?) {
         (None, Some(text)) => {
             let profile = parse_profile(&text).with_context(|| format!("profile of {name}"))?;
-            print_info(&format!(
-                "using {name}'s saved profile; change it with: kafes repo edit {name}"
+            ui::done(&format!(
+                "using {name}'s saved profile; change it with: {}",
+                ui::cmd(&format!("kafes repo edit {name}"))
             ));
             return Ok(profile);
         }
         (Some(p), _) => preset_text(&p)?,
-        (None, None) => preset_text(&prompt_select(
-            &format!("Profile for {name}"),
-            preset_names(),
-        )?)?,
+        (None, None) => {
+            ui::section(&format!("Profile for {name}"));
+            preset_text(&ui::select("Start from preset", preset_names())?)?
+        }
     };
     let profile = parse_profile(text)?;
-    print(&format!("Profile for {name}"));
+    ui::section(&format!("Profile for {name}"));
     profile.print_summary();
     ensure!(
-        prompt_confirm("Use this profile?")?,
+        ui::confirm("Use this profile?")?,
         "stopped; pick another with --profile"
     );
     save_profile_text(name, text)?;
@@ -50,9 +51,11 @@ pub fn cmd_edit(name: &str, preset: Option<String>) -> Result<()> {
     }
     // The rules may have changed: bring the fork's kafes-checks in line
     setup_check(&global, &mut repo)?;
-    print(&format!("Profile of {name} saved"));
-    print_info("prompt and rules: from the next task shell or start");
-    print_info("toolchain and install: from the next task new");
+    ui::section(&format!("Profile of {name} saved"));
+    ui::fields(&[
+        ("prompt and rules", "from the next task shell or start".into()),
+        ("toolchain and install", "from the next task create".into()),
+    ]);
     Ok(())
 }
 
@@ -80,22 +83,22 @@ fn edit_loop(name: &str, current: &str, draft: &str) -> Result<()> {
         run_status(program, &args)?;
         let text = fs::read_to_string(draft)?;
         if text == current {
-            print_info("no changes");
+            ui::done("no changes");
             return Ok(());
         }
         match parse_profile(&text) {
             Ok(profile) => {
-                print(&format!("Profile for {name}"));
+                ui::section(&format!("Profile for {name}"));
                 profile.print_summary();
-                if !prompt_confirm("Save this profile?")? {
+                if !ui::confirm("Save this profile?")? {
                     bail!("stopped; the profile is unchanged");
                 }
                 return save_profile_text(name, &text);
             }
             Err(e) => {
-                print_warning(&format!("{e:#}"));
+                ui::warn(&format!("{e:#}"));
                 ensure!(
-                    prompt_confirm("Edit again?")?,
+                    ui::confirm("Edit again?")?,
                     "stopped; the profile is unchanged"
                 );
             }
@@ -106,12 +109,13 @@ fn edit_loop(name: &str, current: &str, draft: &str) -> Result<()> {
 pub fn cmd_show(name: &str) -> Result<()> {
     load_repo_config(name)?;
     let profile = load_profile(name)?;
-    print(&format!("Profile for {name}"));
+    // The profile is this command's output
+    ui::data_to_stdout();
     profile.print_summary();
-    print_info(&format!(
-        "edit-rule workflow rendered from it: {}",
-        check_path(name)?.display()
-    ));
+    ui::fields(&[(
+        "check workflow",
+        check_path(name)?.display().to_string(),
+    )]);
     Ok(())
 }
 

@@ -17,7 +17,7 @@ pub struct TaskState {
     pub stopped: bool,
 }
 
-/// One per task from task new until task end; names are unique across repositories
+/// One per task from task create until task delete; names are unique across repositories
 #[derive(Serialize, Deserialize)]
 pub struct TaskRecord {
     pub name: String,
@@ -33,7 +33,7 @@ fn records_dir() -> Result<PathBuf> {
 }
 
 fn record_path(name: &str) -> Result<PathBuf> {
-    ensure!(valid_name(name), "invalid task name: {name}");
+    ensure!(valid_name(name), "invalid task name: \"{name}\"");
     Ok(records_dir()?.join(format!("{name}.toml")))
 }
 
@@ -103,7 +103,7 @@ pub fn list_records() -> Result<Vec<TaskRecord>> {
 
 pub fn task_repo(name: &str) -> Result<String> {
     Ok(load_record(name)?
-        .with_context(|| format!("no record of task {name}; end it with: kafes task end {name}"))?
+        .with_context(|| format!("no record of task {name}; delete it with: kafes task delete {name}"))?
         .repo)
 }
 
@@ -114,7 +114,7 @@ pub enum Want {
 }
 
 pub fn require_task(name: &str, want: Want) -> Result<TaskState> {
-    ensure!(valid_name(name), "invalid task name: {name}");
+    ensure!(valid_name(name), "invalid task name: \"{name}\"");
     let state = match load_active()? {
         Some(s) if s.name == name => s,
         other => {
@@ -124,7 +124,7 @@ pub fn require_task(name: &str, want: Want) -> Result<TaskState> {
     };
     ensure!(
         home_path(TASKS_PATH)?.join(name).is_dir(),
-        "~/kafes/tasks/{name} is missing; end the task with: kafes task end {name}"
+        "~/kafes/tasks/{name} is missing; delete the task with: kafes task delete {name}"
     );
     match want {
         Want::Running => ensure!(

@@ -1,11 +1,12 @@
 use crate::config::{NetworkConfig, load_global_config, save_global_config};
 use crate::constants::{ACL, ACL_RULES};
-use crate::ui::{print, print_info, prompt_text, step};
+use crate::ui::{self, step};
 use crate::utils::{run_cmd, run_status};
 use anyhow::{Context, Result};
 
 pub fn setup_acl() -> Result<()> {
-    print("Blocking the workshop from the host network...");
+    ui::section("Block the workshop from the host network");
+    ui::info("sudo may ask for your password");
     // Cache sudo credentials so the captured `sudo lxc` calls below don't prompt
     run_status("sudo", &["-v"])?;
     let mut global = load_global_config()?;
@@ -22,8 +23,11 @@ pub fn setup_acl() -> Result<()> {
                     (cols.next()? == "bridge").then(|| name.to_string())
                 })
                 .collect();
-            print_info(&format!("LXD bridges: {}", bridges.join(", ")));
-            prompt_text("Workshop container bridge", Some("workshopbr0"))?
+            ui::text_help(
+                "Workshop container bridge",
+                Some("workshopbr0"),
+                Some(&format!("LXD bridges: {}", bridges.join(", "))),
+            )?
         }
     };
 
@@ -69,8 +73,13 @@ pub fn setup_acl() -> Result<()> {
         )?;
     }
 
-    print_info(&format!(
-        "{ACL} attached to {bridge} (previous ACLs: '{acls_before}')"
+    let before = if acls_before.is_empty() {
+        "none".to_string()
+    } else {
+        acls_before.clone()
+    };
+    ui::done(&format!(
+        "{ACL} attached to {bridge} (ACLs before: {before})"
     ));
     global.network = Some(NetworkConfig {
         bridge,

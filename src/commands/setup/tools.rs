@@ -1,5 +1,5 @@
 use crate::constants::{BUN_PATH, BUN_VERSION, OMP_PATH, OMP_VERSION};
-use crate::ui::{print, print_info, prompt_confirm, step};
+use crate::ui::{self, step};
 use crate::utils::{check_cmd, get_cmd_version, home_path, is_executable, run_cmd, run_status};
 use anyhow::{Context, Result, bail};
 use std::path::Path;
@@ -14,7 +14,7 @@ fn omp_version_ok(omp: &Path) -> bool {
 }
 
 pub fn setup_tools() -> Result<()> {
-    print("Setting up host tools...");
+    ui::section("Host tools");
 
     for tool in ["curl", "git", "openssl", "sha256sum", "systemd-run"] {
         check_cmd(tool)?;
@@ -35,40 +35,38 @@ pub fn setup_tools() -> Result<()> {
     step("openssl", || get_cmd_version("openssl", &["version"], 1))?;
 
     if run_cmd("snap", &["list", "lxd"]).is_err() {
-        if !prompt_confirm("Do you want to install the LXD snap (6/stable)? This requires sudo.")? {
+        if !ui::confirm_help("Install the LXD snap (6/stable)?", "requires sudo")? {
             bail!("LXD is required");
         }
         let status = Command::new("sudo")
             .args(["snap", "install", "--channel=6/stable", "lxd"])
             .status()
-            .context("couldn't run sudo")?;
+            .context("cannot run sudo")?;
         if !status.success() {
-            bail!("snap install lxd failed");
+            bail!("cannot install the lxd snap");
         }
     }
 
     if run_cmd("snap", &["list", "workshop"]).is_err() {
-        if !prompt_confirm("Do you want to install the Workshop snap? This requires sudo.")? {
+        if !ui::confirm_help("Install the Workshop snap?", "requires sudo")? {
             bail!("Workshop is required");
         }
         let status = Command::new("sudo")
             .args(["snap", "install", "--classic", "workshop"])
             .status()
-            .context("couldn't run sudo")?;
+            .context("cannot run sudo")?;
         if !status.success() {
-            bail!("snap install workshop failed");
+            bail!("cannot install the workshop snap");
         }
     }
 
     run_status("sudo", &["lxd", "waitready"])?;
-    print_info("lxd is ready");
+    ui::done("lxd is ready");
     check_cmd("workshop")?;
 
     let bun = home_path(BUN_PATH)?;
     if !is_executable(&bun) {
-        if !prompt_confirm(&format!(
-            "Do you want to install Bun {BUN_VERSION} into ~/.bun?"
-        ))? {
+        if !ui::confirm(&format!("Install Bun {BUN_VERSION} into ~/.bun?"))? {
             bail!("Bun is required");
         }
         let status = Command::new("bash")
@@ -78,15 +76,13 @@ pub fn setup_tools() -> Result<()> {
             ))
             .status()?;
         if !status.success() {
-            bail!("bun installation failed");
+            bail!("cannot install Bun");
         }
     }
 
     let omp = home_path(OMP_PATH)?;
     if !omp_version_ok(&omp) {
-        if !prompt_confirm(&format!(
-            "Do you want to install OMP {OMP_VERSION} globally with Bun?"
-        ))? {
+        if !ui::confirm(&format!("Install OMP {OMP_VERSION} globally with Bun?"))? {
             bail!("OMP is required");
         }
         let status = Command::new(&bun)
@@ -94,12 +90,13 @@ pub fn setup_tools() -> Result<()> {
             .arg(format!("@oh-my-pi/pi-coding-agent@{OMP_VERSION}"))
             .status()?;
         if !status.success() {
-            bail!("omp installation failed");
+            bail!("cannot install OMP");
         }
         if !omp_version_ok(&omp) {
             bail!("OMP version mismatch");
         }
     }
+    ui::done(&format!("bun {BUN_VERSION} and omp {OMP_VERSION}"));
 
     Ok(())
 }

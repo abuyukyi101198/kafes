@@ -1,4 +1,4 @@
-use crate::ui::print_warning;
+use crate::ui;
 use anyhow::Result;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,7 +23,7 @@ impl Drop for Interactive {
 
 fn print_hint() {
     if let Some(cmd) = HINT.lock().ok().and_then(|mut h| h.take()) {
-        print_warning(&format!("stopped part-way; clean up with: {cmd}"))
+        ui::warn(&format!("stopped part-way; clean up with: {}", ui::cmd(&cmd)))
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::constants::{GATEWAY_CFG_PATH, OMP_PATH, SANDBOX_PATH, TASKS_PATH};
-use crate::ui::{print, prompt_multiselect};
+use crate::ui;
 use crate::utils::{home_path, run_status, write_atomic};
 use anyhow::Result;
 use std::fs::create_dir_all;
@@ -7,10 +7,10 @@ use std::fs::create_dir_all;
 const PROVIDERS: [&str; 2] = ["github-copilot", "openrouter"];
 
 pub fn setup_providers() -> Result<()> {
-    print("Setting up host providers...");
+    ui::section("Model providers");
 
-    let chosen = prompt_multiselect(
-        "Select providers to log in:",
+    let chosen = ui::multiselect(
+        "Providers to log in to",
         PROVIDERS.iter().map(|p| p.to_string()).collect(),
     )?;
 

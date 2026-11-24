@@ -1,6 +1,6 @@
+pub mod create;
+pub mod delete;
 pub mod list;
-pub mod new;
 pub mod shell;
-pub mod stop;
 pub mod start;
-pub mod end;
+pub mod stop;

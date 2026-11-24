@@ -1,7 +1,7 @@
 //! Git helpers. Reads are anonymous; pushes are printed for the user to run.
 
 use crate::config::RepoConfig;
-use crate::ui::{print_warning, prompt_instruction};
+use crate::ui::{self, Manual};
 use anyhow::{Context, Result, bail};
 use std::io::Write;
 use std::path::Path;
@@ -14,10 +14,10 @@ pub fn git_anon(dir: Option<&Path>, args: &[&str]) -> Result<String> {
     if let Some(d) = dir {
         cmd.arg("-C").arg(d);
     }
-    let out = cmd.args(args).output().context("failed to run git")?;
+    let out = cmd.args(args).output().context("cannot run git")?;
     if !out.status.success() {
         bail!(
-            "git {} failed: {}",
+            "cannot run git {}: {}",
             args.join(" "),
             String::from_utf8_lossy(&out.stderr).trim()
         );
@@ -34,7 +34,7 @@ pub fn git_stdin(dir: &Path, args: &[&str], input: &str, env: &[(&str, &str)]) -
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
-        .context("failed to start git")?;
+        .context("cannot start git")?;
     child
         .stdin
         .take()
@@ -42,7 +42,7 @@ pub fn git_stdin(dir: &Path, args: &[&str], input: &str, env: &[(&str, &str)]) -
         .write_all(input.as_bytes())?;
     let out = child.wait_with_output()?;
     if !out.status.success() {
-        bail!("git {} failed", args.join(" "));
+        bail!("cannot run git {}", args.join(" "));
     }
     Ok(String::from_utf8(out.stdout)?.trim().to_string())
 }
@@ -78,26 +78,23 @@ pub fn manual_push(
 ) -> Result<()> {
     let branch = refspec.rsplit("refs/heads/").next().unwrap_or(refspec);
     let push = format!(
-        "  git -C '{}' push origin {refspec}",
+        "git -C '{}' push origin {refspec}",
         repo.checkout.display()
     );
-    let check = format!(
-        "kafes then checks that {fork} has {branch} at {}.",
-        &sha[..12]
-    );
     loop {
-        prompt_instruction(&[
-            why,
-            "Run this push yourself, in another terminal:",
-            "",
-            &push,
-            "",
-            &check,
-        ])?;
+        Manual::new(why)
+            .step("Run this push yourself, in another terminal, with your own credentials:")
+            .cmd(&push)
+            .text(format!(
+                "kafes then checks that {fork} has {branch} at {}",
+                &sha[..12]
+            ))
+            .confirm()?;
         if remote_sha(fork, branch)?.as_deref() == Some(sha) {
+            ui::done(&format!("{fork} has {branch} at {}", &sha[..12]));
             return Ok(());
         }
-        print_warning(&format!("{fork}'s {branch} is not at {sha} yet"));
+        ui::warn(&format!("{fork}'s {branch} is not at {} yet", &sha[..12]));
     }
 }
 

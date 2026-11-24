@@ -1,6 +1,6 @@
 use crate::config::GlobalConfig;
 use crate::constants::ACL;
-use crate::ui::print_info;
+use crate::ui;
 use crate::utils::{run_cmd, run_status};
 use crate::workshop::{connections_ok, ws_output};
 use anyhow::{Context, Result, bail, ensure};
@@ -16,10 +16,10 @@ pub fn bridge_state(global: &GlobalConfig) -> Result<Subnet> {
     let bridge = &global
         .network
         .as_ref()
-        .context("no bridge configured; re-run setup")?
+        .context("no bridge configured; run kafes init again")?
         .bridge;
-    print_info(&format!(
-        "checking {ACL} on {bridge}; sudo may ask you to authenticate"
+    ui::info(&format!(
+        "checking {ACL} on {bridge}; sudo may ask for your password"
     ));
     run_status("sudo", &["-v"])
         .context("sudo is needed to read the LXD bridge; nothing was started")?;
@@ -27,7 +27,7 @@ pub fn bridge_state(global: &GlobalConfig) -> Result<Subnet> {
     let acls = run_cmd("sudo", &["lxc", "network", "get", bridge, "security.acls"])?;
     ensure!(
         acls.trim().split(',').any(|a| a == ACL),
-        "{ACL} is no longer attached to {bridge}; re-run setup"
+        "{ACL} is no longer attached to {bridge}; run kafes init again"
     );
 
     let cidr = run_cmd("sudo", &["lxc", "network", "get", bridge, "ipv4.address"])?
@@ -62,7 +62,7 @@ pub fn acl_ok(task: &str, subnet: &Subnet) -> Result<()> {
         .any(|ip| u32::from(ip) & subnet.mask == subnet.net);
     if !on_bridge {
         bail!(
-            "the workshop is not on the ACL bridge ({}); fix network.bridge in config.toml and re-run setup",
+            "the workshop is not on the ACL bridge ({}); fix network.bridge in config.toml and run kafes init again",
             subnet.cidr
         );
     }
@@ -72,7 +72,7 @@ pub fn acl_ok(task: &str, subnet: &Subnet) -> Result<()> {
 pub fn check_workshop_network(task: &str, subnet: &Subnet) -> Result<()> {
     connections_ok(task)?;
     acl_ok(task, subnet)?;
-    print_info(&format!(
+    ui::done(&format!(
         "only the two tunnels are connected; {ACL} applies"
     ));
     Ok(())

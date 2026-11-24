@@ -1,14 +1,14 @@
 //! `kafes teardown`: dismantle the whole sandbox
 
 use crate::commands::repo::remove::remove_repo;
-use crate::commands::task::end::cmd_task_end;
+use crate::commands::task::delete::cmd_task_delete;
 use crate::config::{GlobalConfig, list_repos, load_global_config, load_repo_config, valid_name};
 use crate::constants::{
     ACL, BUN_PATH, GATEWAY_CFG_PATH, OMP_PATH, PUSH_CFG_PATH, SANDBOX_PATH, STATE_PATH, TASKS_PATH,
 };
 use crate::services::stop_services;
 use crate::state::{delete_record, list_records, load_active};
-use crate::ui::{print, print_info, print_warning, prompt_confirm, prompt_instruction};
+use crate::ui::{self, Manual};
 use crate::utils::{home_path, run_cmd, run_status, tmp_path};
 use crate::workshop::ws;
 use anyhow::{Context, Result, ensure};
@@ -28,10 +28,10 @@ const SANDBOX_FILES: [&str; 9] = [
 
 pub fn cmd_teardown() -> Result<()> {
     let global = load_global_config()?;
-    print_warning(
-        "This dismantles the whole sandbox: every task, every repository, the App and the local files.",
+    ui::warn(
+        "this dismantles the whole sandbox: every task, every repository, the App and the local files",
     );
-    if !prompt_confirm("Continue?")? {
+    if !ui::confirm_danger("Continue?", None)? {
         return Ok(());
     }
 
@@ -42,12 +42,12 @@ pub fn cmd_teardown() -> Result<()> {
     remove_local_files()?;
     remove_tools()?;
 
-    print("Teardown complete.");
+    ui::section("Teardown complete");
     Ok(())
 }
 
 fn remove_tasks() -> Result<()> {
-    print("1. Tasks and services");
+    ui::section("Teardown 1/6: tasks and services");
     // Every recorded task, plus an active one without a record
     let mut names: Vec<String> = list_records()?.into_iter().map(|r| r.name).collect();
     if let Some(active) = load_active()?
@@ -56,8 +56,8 @@ fn remove_tasks() -> Result<()> {
         names.push(active.name);
     }
     for name in names {
-        if let Err(e) = cmd_task_end(&name) {
-            print_warning(&format!("ending {name}: {e:#}"));
+        if let Err(e) = cmd_task_delete(&name) {
+            ui::warn(&format!("cannot delete task {name}: {e:#}"));
         }
     }
 
@@ -79,25 +79,25 @@ fn remove_tasks() -> Result<()> {
                 path.display()
             );
             ws(&name, &["remove", "dev"])
-                .with_context(|| format!("workshop remove failed for {name}; fix it first"))?;
+                .with_context(|| format!("cannot remove the workshop of {name}; fix it first"))?;
             fs::remove_dir_all(&path)?;
             delete_record(&name)?;
-            print_info(&format!("removed task {name}"));
+            ui::done(&format!("removed task {name}"));
         }
     }
 
     if let Err(e) = stop_services() {
-        print_warning(&format!("{e:#}"));
+        ui::warn(&format!("{e:#}"));
     }
-    print_info("no task workshops or host services remain");
+    ui::done("no task workshops or host services remain");
     Ok(())
 }
 
 fn remove_repos(global: &GlobalConfig) -> Result<()> {
-    print("2. Repositories");
+    ui::section("Teardown 2/6: repositories");
     let repos = list_repos()?;
     if repos.is_empty() {
-        print_info("none left");
+        ui::done("none left");
     }
     for name in repos {
         let repo = load_repo_config(&name)?;
@@ -107,23 +107,26 @@ fn remove_repos(global: &GlobalConfig) -> Result<()> {
 }
 
 fn remove_remote_credentials(global: &GlobalConfig) -> Result<()> {
-    print("3. Remote credentials");
+    ui::section("Teardown 3/6: remote credentials");
     let owner = &global.kafes_owner;
     let slug = global.app.bot_name.trim_end_matches("[bot]");
-    prompt_instruction(&[
-        &format!("Delete the GitHub App BEFORE deleting {owner}:"),
-        &format!(
-            "  https://github.com/organizations/{owner}/settings/apps/{slug}/advanced -> Delete GitHub App"
-        ),
-    ])?;
-    prompt_instruction(&[
-        "Revoke the provider grants used for the OMP logins:",
-        "  OpenRouter key: https://openrouter.ai/settings/keys",
-        "  GitHub Copilot OAuth grant: https://github.com/settings/applications",
-        "  Revoke only grants that belong to this setup.",
-    ])?;
-    if prompt_confirm(
-        "Log this host's broker out of github-copilot and openrouter? (all of the host, not one task)",
+    Manual::new(format!("Delete the GitHub App, before deleting {owner}"))
+        .step("Open:")
+        .link(format!(
+            "https://github.com/organizations/{owner}/settings/apps/{slug}/advanced"
+        ))
+        .step("Delete GitHub App")
+        .confirm()?;
+    Manual::new("Revoke the provider grants used for the OMP logins")
+        .text("revoke only grants that belong to this setup")
+        .step("OpenRouter key:")
+        .link("https://openrouter.ai/settings/keys")
+        .step("GitHub Copilot OAuth grant:")
+        .link("https://github.com/settings/applications")
+        .confirm()?;
+    if ui::confirm_danger(
+        "Log this host's broker out of github-copilot and openrouter?",
+        Some("all of the host, not one task"),
     )? {
         let omp = home_path(OMP_PATH)?.to_string_lossy().into_owned();
         for provider in ["github-copilot", "openrouter"] {
@@ -136,18 +139,21 @@ fn remove_remote_credentials(global: &GlobalConfig) -> Result<()> {
                 provider,
             ];
             if let Err(e) = run_status("env", &args) {
-                print_warning(&format!("logout {provider}: {e:#}"));
+                ui::warn(&format!("logout {provider}: {e:#}"));
             }
         }
     }
-    prompt_instruction(&[
-        &format!("LAST, once the App is deleted and {owner} has no other use, delete it:"),
-        &format!("  https://github.com/organizations/{owner}/settings/profile"),
-    ])
+    Manual::new(format!("Delete {owner}, last"))
+        .text("only once the App is deleted and the organization has no other use")
+        .step("Open:")
+        .link(format!("https://github.com/organizations/{owner}/settings/profile"))
+        .step("Delete this organization")
+        .confirm()
 }
 
 fn restore_bridge(global: &GlobalConfig) -> Result<()> {
-    print("4. LXD network ACL");
+    ui::section("Teardown 4/6: LXD network ACL");
+    ui::info("sudo may ask for your password");
     run_status("sudo", &["-v"])?;
     if let Some(net) = &global.network
         && run_cmd("sudo", &["lxc", "network", "show", &net.bridge]).is_ok()
@@ -161,15 +167,17 @@ fn restore_bridge(global: &GlobalConfig) -> Result<()> {
             let value = format!("security.acls={}", net.acls_before);
             run_cmd("sudo", &["lxc", "network", "set", &net.bridge, &value])?;
         }
-        print_info(&format!(
-            "{} ACLs restored to '{}'",
-            net.bridge, net.acls_before
-        ));
+        let before = if net.acls_before.is_empty() {
+            "none"
+        } else {
+            net.acls_before.as_str()
+        };
+        ui::done(&format!("{} ACLs restored to: {before}", net.bridge));
     }
     if run_cmd("sudo", &["lxc", "network", "acl", "show", ACL]).is_ok()
         && run_cmd("sudo", &["lxc", "network", "acl", "delete", ACL]).is_err()
     {
-        print_warning(&format!(
+        ui::warn(&format!(
             "{ACL} is still referenced elsewhere; left in place"
         ));
     }
@@ -177,7 +185,7 @@ fn restore_bridge(global: &GlobalConfig) -> Result<()> {
 }
 
 fn remove_local_files() -> Result<()> {
-    print("5. Local files");
+    ui::section("Teardown 5/6: local files");
     let push = home_path(PUSH_CFG_PATH)?;
     let gateway = home_path(GATEWAY_CFG_PATH)?;
     let sandbox = home_path(SANDBOX_PATH)?;
@@ -224,24 +232,31 @@ fn remove_local_files() -> Result<()> {
         .map(|d| d.display().to_string())
         .collect();
     if !left.is_empty() {
-        print_warning(&format!(
+        ui::warn(&format!(
             "not empty, inspect instead of deleting recursively: {}",
             left.join(", ")
         ));
     }
-    print_info("delete any other copy of the App key by exact path");
+    ui::done("local files removed");
+    ui::info("delete any other copy of the App key by exact path");
     Ok(())
 }
 
 fn remove_tools() -> Result<()> {
-    print("6. Optional: sandbox-only tools");
-    if prompt_confirm("Uninstall the global OMP package? (n if you use OMP elsewhere)")? {
+    ui::section("Teardown 6/6: sandbox-only tools (optional)");
+    if ui::confirm_danger(
+        "Uninstall the global OMP package?",
+        Some("answer no if you use OMP elsewhere"),
+    )? {
         let bun = home_path(BUN_PATH)?.to_string_lossy().into_owned();
         if let Err(e) = run_status(&bun, &["remove", "--global", "@oh-my-pi/pi-coding-agent"]) {
-            print_warning(&format!("{e:#}"));
+            ui::warn(&format!("{e:#}"));
         }
     }
-    print_info("Remove Workshop and LXD only if installed for this and holding nothing else:");
-    print_info("  sudo snap remove workshop; sudo snap remove lxd  (never purge a shared LXD)");
+    Manual::new("Remove Workshop and LXD, only if installed for kafes and holding nothing else")
+        .text("never purge a shared LXD")
+        .cmd("sudo snap remove workshop")
+        .cmd("sudo snap remove lxd")
+        .print();
     Ok(())
 }

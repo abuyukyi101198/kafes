@@ -1,7 +1,7 @@
 use crate::config::{AppConfig, GlobalConfig, load_global_config, save_global_config, valid_name};
 use crate::constants::PUSH_CFG_PATH;
 use crate::github::gh_api;
-use crate::ui::{print, print_info, prompt_instruction, prompt_text};
+use crate::ui::{self, Manual};
 use crate::utils::{home_path, run_cmd, write_atomic};
 use anyhow::{Context, Result, bail, ensure};
 use std::fs::{create_dir_all, read_dir, read_to_string, remove_file};
@@ -28,29 +28,27 @@ fn newest_download_pem() -> Option<String> {
 }
 
 pub fn setup_org() -> Result<()> {
-    print("Setting up kafes org...");
+    ui::section("kafes organization and GitHub App");
     let prev = load_global_config().ok();
 
-    let gh_user = prompt_text("GitHub username", prev.as_ref().map(|p| p.gh_user.as_str()))?;
+    let gh_user = ui::text("GitHub username", prev.as_ref().map(|p| p.gh_user.as_str()))?;
     if !valid_name(&gh_user) {
         bail!("invalid GitHub username");
     }
     gh_api(&format!("/users/{gh_user}")).context("user not found on GitHub")?;
 
     if prev.is_none() {
-        let url = format!(
-            "  https://github.com/account/organizations/new?plan=free  (e.g. {gh_user}-kafes)"
-        );
-        prompt_instruction(&[
-            "Create a free organization you own, with no other members:",
-            &url,
-        ])?;
+        Manual::new("Create the kafes organization")
+            .step("Create a free organization you own, with no other members:")
+            .link("https://github.com/account/organizations/new?plan=free")
+            .field("Name", format!("{gh_user}-kafes (or any free name)"))
+            .confirm()?;
     }
     let default_owner = prev
         .as_ref()
         .map(|p| p.kafes_owner.clone())
         .unwrap_or(format!("{gh_user}-kafes"));
-    let kafes_owner = prompt_text("kafes organization", Some(&default_owner))?;
+    let kafes_owner = ui::text("kafes organization", Some(&default_owner))?;
     if !valid_name(&kafes_owner) || kafes_owner == gh_user {
         bail!("invalid kafes organization; it must not be your own account");
     }
@@ -58,52 +56,67 @@ pub fn setup_org() -> Result<()> {
     if owner["type"] != "Organization" {
         bail!("{kafes_owner} is not an organization");
     }
+    ui::done(&format!("{kafes_owner} is an organization"));
 
     let pem_dest = home_path(PUSH_CFG_PATH)?.join("app.pem");
     if !pem_dest.exists() {
         let o = &kafes_owner;
-        prompt_instruction(&[
-            &format!("Register a GitHub App owned by {o}:"),
-            &format!("  https://github.com/organizations/{o}/settings/apps/new"),
-            &format!("  Name: {o} (allowed: it's the owner's own name; the bot becomes {o}[bot])."),
-            &format!(
-                "    If taken, any unique name up to 34 characters.  Homepage URL: https://github.com/{o}"
-            ),
-            "  Callback URL, Setup URL, Webhook URL and secret: blank.",
-            "  'Expire user authorization tokens': leave checked.",
-            "  Unchecked: 'Request user authorization (OAuth) during installation',",
-            "    'Enable Device Flow', 'Redirect on update', Webhook 'Active'.",
-            "  Repository permissions: Contents = Read and write; Metadata = Read-only;",
-            "    everything else, including Workflows and Pull requests, No access.",
-            "  Organization and account permissions: none.",
-            "  Where can this GitHub App be installed: Only on this account.",
-            "Then on the App page, Private keys -> Generate a private key.",
-            "  Leave the downloaded .pem where the browser saved it.",
-        ])?;
+        Manual::new(format!("Register a GitHub App owned by {o}"))
+            .step("Open:")
+            .link(format!("https://github.com/organizations/{o}/settings/apps/new"))
+            .step("Fill in:")
+            .field("GitHub App name", o.as_str())
+            .text(format!(
+                "allowed, as it is the owner's own name; the bot becomes {o}[bot]. If taken, any unique name up to 34 characters"
+            ))
+            .field("Homepage URL", format!("https://github.com/{o}"))
+            .field("Callback URL", "blank")
+            .field("Setup URL", "blank")
+            .field("Webhook URL and secret", "blank")
+            .step("Checkboxes:")
+            .field("Expire user authorization tokens", "checked (the default)")
+            .field("Request user authorization (OAuth)", "unchecked")
+            .field("Enable Device Flow", "unchecked")
+            .field("Redirect on update", "unchecked")
+            .field("Webhook: Active", "unchecked")
+            .step("Permissions:")
+            .field("Repository: Contents", "Read and write")
+            .field("Repository: Metadata", "Read-only")
+            .field("Everything else", "No access (including Workflows and Pull requests)")
+            .field("Organization and account", "none")
+            .step("Where can this GitHub App be installed: Only on this account. Create it")
+            .step("On the App page: Private keys → Generate a private key")
+            .text("leave the downloaded .pem where the browser saved it")
+            .confirm()?;
         let newest = newest_download_pem();
-        let pem = prompt_text("Path of the downloaded .pem", newest.as_deref())?;
+        let pem = ui::text("Path of the downloaded .pem", newest.as_deref())?;
         ensure!(Path::new(&pem).is_file(), "{pem} not found");
         run_cmd("openssl", &["pkey", "-in", &pem, "-noout"])
             .with_context(|| format!("{pem} is not a private key"))?;
         create_dir_all(home_path(PUSH_CFG_PATH)?)?;
         write_atomic(&pem_dest, &read_to_string(&pem)?)?;
         remove_file(&pem)?;
-        print_info(&format!(
+        ui::done(&format!(
             "key stored in {}; the download is deleted",
             pem_dest.display()
         ));
     }
 
-    let client_id = prompt_text(
-        "App Client ID (App settings, 'About')",
+    let client_id = ui::text_help(
+        "App Client ID",
         prev.as_ref().map(|p| p.app.client_id.as_str()),
+        Some("App settings → General → About; starts with Iv"),
     )?;
     ensure!(valid_client_id(&client_id), "a Client ID starts with Iv");
 
     let prev_slug = prev
         .as_ref()
         .map(|p| p.app.bot_name.trim_end_matches("[bot]"));
-    let slug = prompt_text("App slug (last part of the App's settings URL)", prev_slug)?;
+    let slug = ui::text_help(
+        "App slug",
+        prev_slug,
+        Some("the last part of the App's settings URL; usually its name in lower case"),
+    )?;
     ensure!(valid_name(&slug), "invalid App slug: {slug}");
     let bot = gh_api(&format!("/users/{slug}%5Bbot%5D")).context("no bot user; check the slug")?;
     let bot_name = bot["login"]
@@ -112,7 +125,7 @@ pub fn setup_org() -> Result<()> {
         .to_string();
     let bot_id = bot["id"].as_u64().context("bot has no id")?;
     let bot_email = format!("{bot_id}+{bot_name}@users.noreply.github.com");
-    print_info(&format!("kafes commit identity: {bot_name} <{bot_email}>"));
+    ui::done(&format!("commit identity: {bot_name} <{bot_email}>"));
 
     save_global_config(&GlobalConfig {
         gh_user,

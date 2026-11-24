@@ -3,9 +3,7 @@ use crate::constants::ACTIONS_APP_ID;
 use crate::git::{anon_fetch, git_stdin, manual_push, remote_sha};
 use crate::github::gh_api;
 use crate::profile::{check_path, load_profile};
-use crate::ui::{
-    print, print_info, print_warning, prompt_confirm, prompt_instruction, prompt_text,
-};
+use crate::ui::{self, Manual};
 use crate::utils::{home_path, run_cmd, write_atomic_mode};
 use anyhow::{Context, Result, bail};
 use std::path::Path;
@@ -13,7 +11,7 @@ use std::path::Path;
 pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     let fork = repo.fork(global);
     let dir = repo.checkout.clone();
-    print(&format!("Edit-rule check on {fork}"));
+    ui::section(&format!("Edit-rule check on {fork}"));
 
     // Rendered from the repository's profile, kept for you to read
     let profile = load_profile(&repo.name)?;
@@ -25,10 +23,11 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     let remote = match remote_sha(&fork, "kafes-checks")? {
         Some(sha) => sha,
         None => {
-            if !prompt_confirm(&format!(
-                "Have you read {}? It runs with a token that can write to your fork.",
-                src.display()
-            ))? {
+            ui::info(&format!("workflow to publish: {}", src.display()));
+            if !ui::confirm_help(
+                "Have you read it?",
+                "it runs with a token that can write to your fork",
+            )? {
                 bail!("read the workflow first");
             }
             let local = run_cmd(
@@ -56,9 +55,9 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
                             "",
                         ],
                     )?;
-                    print_info("created local branch kafes-checks (nothing checked out)");
+                    ui::done("created local branch kafes-checks (nothing checked out)");
                 }
-                Some(sha) if sha == want => print_info("kafes-checks already exists locally"),
+                Some(sha) if sha == want => ui::detail("kafes-checks already exists locally"),
                 Some(sha) => {
                     bail!(
                         "a local kafes-checks at {sha} has other content; inspect it, and if kafes \
@@ -72,7 +71,7 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
                 &fork,
                 &want,
                 "kafes-checks",
-                &format!("Publish the edit-rule check as {fork}'s kafes-checks branch."),
+                &format!("Publish the edit-rule check as {fork}'s kafes-checks branch"),
             )?;
             want.clone()
         }
@@ -86,15 +85,16 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
     }
     let mut remote = remote;
     if run_cmd("git", &["-C", &d, "diff", "--quiet", &remote, &want, "--"]).is_err() {
-        print_warning(&format!(
+        ui::warn(&format!(
             "{fork}'s kafes-checks differs from {}:",
             src.display()
         ));
         let diff = run_cmd("git", &["-C", &d, "diff", &remote, &want, "--"])?;
-        for line in diff.lines() {
-            println!("      {line}");
-        }
-        if prompt_confirm(&format!("Replace {fork}'s kafes-checks with this version?"))? {
+        ui::diff(&diff);
+        if ui::confirm_danger(
+            &format!("Replace {fork}'s kafes-checks with this version?"),
+            Some("a force push; the old check is replaced"),
+        )? {
             // kafes-checks has no parent by design, so the update replaces it
             manual_push(
                 repo,
@@ -102,17 +102,17 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
                 &want,
                 &format!("+{want}:refs/heads/kafes-checks"),
                 &format!(
-                    "Replace {fork}'s kafes-checks with the check for this profile (a force push)."
+                    "Replace {fork}'s kafes-checks with the check for this profile (a force push)"
                 ),
             )?;
             remote = want.clone();
         } else {
-            print_warning(&format!(
+            ui::warn(&format!(
                 "{fork}'s kafes-checks keeps its current rules; kafes PRs are checked against those"
             ));
         }
     }
-    print_info(&format!("kafes-checks is on {fork} at {}", &remote[..12]));
+    ui::done(&format!("kafes-checks is on {fork} at {}", &remote[..12]));
 
     let default_branch = |f: &str| -> Result<String> {
         Ok(gh_api(&format!("/repos/{f}"))?["default_branch"]
@@ -126,54 +126,59 @@ pub fn setup_check(global: &GlobalConfig, repo: &mut RepoConfig) -> Result<()> {
             repo.default_branch_before = Some(current.clone());
             save_repo_config(repo)?;
         }
-        let url = format!(
-            "  https://github.com/{fork}/settings  -> Default branch -> switch to kafes-checks"
-        );
-        prompt_instruction(&[
-            &format!("Make kafes-checks the default branch of {fork} (currently {current}):"),
-            &url,
-        ])?;
+        Manual::new(format!("Make kafes-checks the default branch of {fork}"))
+            .step("Open:")
+            .link(format!("https://github.com/{fork}/settings"))
+            .step(format!(
+                "Default branch → switch from {current} to kafes-checks"
+            ))
+            .confirm()?;
         if default_branch(&fork)? != "kafes-checks" {
             bail!("the default branch is still not kafes-checks");
         }
     }
+    ui::done("kafes-checks is the default branch");
 
     if rules_ok(&fork) {
-        print_info("ruleset on kafes-base/** verified");
+        ui::done("ruleset on kafes-base/** verified");
         return Ok(());
     }
 
     let kafes_fork = repo.kafes_fork(global);
-    prompt_instruction(&[
-        &format!("Create two repository VARIABLES (not secrets) on {fork}, or check they're set:"),
-        &format!("  https://github.com/{fork}/settings/variables/actions"),
-        &format!("  KAFES_FORK  = {kafes_fork}"),
-        &format!("  KAFES_EMAIL = {}", global.app.bot_email),
-        &format!("Allow Actions on {fork} (forks start with workflows disabled):"),
-        &format!(
-            "  https://github.com/{fork}/actions  -> 'I understand my workflows, go ahead and enable them'"
-        ),
-    ])?;
+    Manual::new(format!("Variables and Actions on {fork}"))
+        .step("Create two repository variables (not secrets), or check they're set:")
+        .link(format!("https://github.com/{fork}/settings/variables/actions"))
+        .field("KAFES_FORK", kafes_fork.as_str())
+        .field("KAFES_EMAIL", global.app.bot_email.as_str())
+        .step("Allow Actions (forks start with workflows disabled):")
+        .link(format!("https://github.com/{fork}/actions"))
+        .text("→ 'I understand my workflows, go ahead and enable them'")
+        .confirm()?;
 
     bootstrap_status(global, repo)?;
 
-    prompt_instruction(&[
-        &format!("Create the ruleset: https://github.com/{fork}/settings/rules/new?target=branch"),
-        "  (if a kafes-base ruleset already exists, edit it instead)",
-        "  Name: kafes-base. Enforcement: Active. Bypass list: EMPTY.",
-        "  Target branches -> Add target -> Include by pattern: kafes-base/**",
-        "  Rules: Restrict deletions; Block force pushes;",
-        "    Require status checks to pass -> Add checks -> kafes-pr-check,",
-        "    and set its source to 'GitHub Actions' (never 'Any source').",
-        "    Also tick 'Do not require status checks on creation'.",
-        "  If the check or source is missing, refresh the editor and add it again.",
-    ])?;
+    Manual::new(format!("Create the kafes-base ruleset on {fork}"))
+        .step("Open (if a kafes-base ruleset already exists, edit it instead):")
+        .link(format!("https://github.com/{fork}/settings/rules/new?target=branch"))
+        .step("Fill in:")
+        .field("Ruleset name", "kafes-base")
+        .field("Enforcement status", "Active")
+        .field("Bypass list", "empty")
+        .field("Target branches", "Add target → Include by pattern → kafes-base/**")
+        .step("Rules:")
+        .field("Restrict deletions", "on")
+        .field("Block force pushes", "on")
+        .field("Require status checks to pass", "on")
+        .field("  Add checks", "kafes-pr-check, source 'GitHub Actions' (never 'Any source')")
+        .field("  Do not require status checks on creation", "on")
+        .text("if the check or source is missing, refresh the editor and add it again")
+        .confirm()?;
 
     if !rules_ok(&fork) {
         bail!("the ruleset on kafes-base/** is not as required; fix it and re-run");
     }
 
-    print_info("ruleset on kafes-base/** verified");
+    ui::done("ruleset on kafes-base/** verified");
     Ok(())
 }
 
@@ -197,12 +202,14 @@ fn old_worktree_gone(dir: &Path) -> Result<()> {
         return Ok(());
     }
     let (o, d) = (old.display(), dir.display());
-    prompt_instruction(&[
-        &format!("An earlier kafes left a worktree at {o}. Check it holds nothing you need:"),
-        &format!("  git -C '{o}' status --short"),
-        &format!("then remove it:  git -C '{d}' worktree remove '{o}'"),
-        &format!("(if the directory is already gone:  git -C '{d}' worktree prune)"),
-    ])?;
+    Manual::new("Remove the worktree an earlier kafes left behind")
+        .step(format!("Check {o} holds nothing you need:"))
+        .cmd(format!("git -C '{o}' status --short"))
+        .step("Remove it:")
+        .cmd(format!("git -C '{d}' worktree remove '{o}'"))
+        .text("if the directory is already gone:")
+        .cmd(format!("git -C '{d}' worktree prune"))
+        .confirm()?;
     if registered()? {
         bail!("the worktree is still registered");
     }
@@ -289,18 +296,19 @@ pub fn rules_ok(fork: &str) -> bool {
 fn bootstrap_status(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
     let fork = repo.fork(global);
     let kafes_fork = repo.kafes_fork(global);
-    print_info("GitHub Actions only appears as a status source once it has posted one.");
+    ui::info("GitHub Actions only appears as a status source once it has posted one");
 
     match remote_sha(&fork, "kafes-base/setup")? {
-        Some(sha) => print_info(&format!(
+        Some(sha) => ui::detail(&format!(
             "kafes-base/setup already exists on {fork} ({}); reusing it",
             &sha[..12]
         )),
         None => {
             let default_seed = repo.default_branch_before.as_deref().unwrap_or("main");
-            let seed = prompt_text(
-                &format!("Branch of {fork} to cut kafes-base/setup from (never kafes-checks)"),
+            let seed = ui::text_help(
+                &format!("Branch of {fork} to cut kafes-base/setup from"),
                 Some(default_seed),
+                Some("never kafes-checks"),
             )?;
             if seed == "kafes-checks" {
                 bail!("never cut kafes-base branches from kafes-checks");
@@ -313,7 +321,7 @@ fn bootstrap_status(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
                 &fork,
                 &sha,
                 &format!("{sha}:refs/heads/kafes-base/setup"),
-                &format!("Create the throwaway base branch kafes-base/setup on {fork}, at {seed}."),
+                &format!("Create the throwaway base branch kafes-base/setup on {fork}, at {seed}"),
             )?;
         }
     }
@@ -323,18 +331,18 @@ fn bootstrap_status(global: &GlobalConfig, repo: &RepoConfig) -> Result<()> {
         .unwrap_or("main")
         .to_string();
     let (owner, name) = (&global.kafes_owner, &repo.name);
-    prompt_instruction(&[
-        "Open a dummy PR from the kafes fork into kafes-base/setup:",
-        "  (if one is already open from an earlier run, use it and skip to 3)",
-        &format!(
-            "  1. https://github.com/{kafes_fork}/new/{kafes_default}?filename=docs/kafes-setup-dummy.md"
-        ),
-        "     Content: anything. Choose 'Create a new branch' (e.g. setup-dummy), propose.",
-        &format!(
-            "  2. https://github.com/{fork}/compare/kafes-base/setup...{owner}:{name}:setup-dummy?expand=1"
-        ),
-        "     Create the pull request.",
-        "  3. Wait for a 'kafes-pr-check' status (failing is fine), then close the PR",
-        "     WITHOUT merging and delete the setup-dummy branch on the kafes fork.",
-    ])
+    Manual::new("Open a dummy PR from the kafes fork into kafes-base/setup")
+        .text("if one is already open from an earlier run, use it and skip to step 3")
+        .step("Create a file on a new branch of the kafes fork:")
+        .link(format!(
+            "https://github.com/{kafes_fork}/new/{kafes_default}?filename=docs/kafes-setup-dummy.md"
+        ))
+        .text("content: anything; choose 'Create a new branch' (e.g. setup-dummy), propose")
+        .step("Create the pull request:")
+        .link(format!(
+            "https://github.com/{fork}/compare/kafes-base/setup...{owner}:{name}:setup-dummy?expand=1"
+        ))
+        .step("Wait for a 'kafes-pr-check' status (failing is fine)")
+        .step("Close the PR without merging, and delete setup-dummy on the kafes fork")
+        .confirm()
 }

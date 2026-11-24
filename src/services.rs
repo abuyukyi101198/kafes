@@ -5,7 +5,7 @@ use crate::constants::{
     BROKER_URL, BUN_PATH, GATEWAY_CFG_PATH, OMP_PATH, PUSH_CFG_PATH, SANDBOX_PATH, UNIT_BROKER,
     UNIT_GATEWAY, UNIT_PROXY,
 };
-use crate::ui::{print_info, print_warning};
+use crate::ui;
 use crate::utils::{home_path, run_cmd, write_atomic};
 use anyhow::{Context, Result, bail, ensure};
 use std::fs::{create_dir_all, remove_file};
@@ -73,9 +73,9 @@ fn run_unit(unit: &str, env: &[(&str, &str)], cmd: &[&str]) -> Result<()> {
         .arg("--")
         .args(cmd)
         .status()
-        .context("failed to run `systemd-run`")?;
+        .context("cannot run systemd-run")?;
     if !status.success() {
-        bail!("systemd-run {unit} failed");
+        bail!("cannot start the {unit} unit");
     }
     Ok(())
 }
@@ -181,7 +181,7 @@ pub fn stop_proxy() -> bool {
     if !unit_active(UNIT_PROXY) {
         return true;
     }
-    print_info("stopping the push proxy (revoking tokens; up to ~30 s)");
+    ui::info("stopping the push proxy (revoking tokens; up to ~30 s)");
     let svc = format!("{UNIT_PROXY}.service");
     let invocation = run_cmd(
         "systemctl",
@@ -197,11 +197,11 @@ pub fn stop_proxy() -> bool {
     .unwrap_or_default();
     systemctl_user(&["reset-failed", &svc]);
     if result.trim() == "success" {
-        print_info("push proxy stopped cleanly");
+        ui::done("push proxy stopped cleanly");
         true
     } else {
-        print_warning(
-            "revocation or a mint failed: an installation token may stay valid for up to 1 h",
+        ui::warn(
+            "cannot confirm every token was revoked: an installation token may stay valid for up to 1 h",
         );
         false
     }
@@ -220,7 +220,7 @@ fn print_proxy_log(invocation: &str) {
         for line in log.lines() {
             let lower = line.to_lowercase();
             if ["revo", "mint", "fatal"].iter().any(|k| lower.contains(k)) {
-                println!("      {line}");
+                ui::detail(&format!("  proxy: {line}"));
             }
         }
     }
@@ -230,7 +230,7 @@ pub fn revoke_gateway_clients() -> Result<()> {
     let gateway_cfg = home_path(GATEWAY_CFG_PATH)?;
     create_dir_all(&gateway_cfg)?;
     write_atomic(&gateway_cfg.join("clients.json"), "{}\n")?;
-    print_info("gateway client token revoked");
+    ui::detail("gateway client token revoked");
     Ok(())
 }
 
