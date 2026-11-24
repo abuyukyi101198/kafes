@@ -118,8 +118,8 @@ kafes repo add [<repo>] [--profile <preset>]
       close it without merging;
     - create the `kafes-base` ruleset exactly as printed: active, empty bypass
       list, `kafes-base/**`, restrict deletions, block force pushes, require
-      `kafes-pr-check` from **GitHub Actions** (never _Any source_), and tick _Do not require status checks on
-      creation_.
+      `kafes-pr-check` from **GitHub Actions** (never _Any source_), and tick
+      _Do not require status checks on creation_.
 
    If your fork's `kafes-checks` differs from the profile's check, kafes shows
    the diff and offers a force push that replaces it.

@@ -115,6 +115,13 @@ Per repository, during `kafes repo add`:
    contributor can push new `kafes-base/*` branches; merges into them still
    need the check.
 
+> [!NOTE]
+> The separate `kafes-checks` default branch exists because upstream
+> repositories are assumed NOT to carry the check workflow, so the fork's usual default
+> branch doesn't either. If the workflow exists upstream, the fork's default
+> branch already holds it, and `main` (or whatever upstream uses) can remain the
+> default branch. kafes's setup currently always uses `kafes-checks`.
+
 ### Workflow rules
 
 | Rule                                                                                                                                                                                                | Why                                                                                                                                                                                                                 |
