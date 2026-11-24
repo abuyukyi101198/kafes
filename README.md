@@ -30,7 +30,8 @@ kafes wires together:
 - **Workshop:** one container per task, with an LXD network ACL and only two
   tunnels to the host
 - **Host proxies:** an OMP auth gateway for model access and a push proxy for
-  GitHub, so no credentials enter the container
+  GitHub, so provider keys and GitHub credentials stay on the host; the
+  container holds only revocable client tokens for the two proxies
 - **GitHub:** a separate kafes fork the agent pushes to through a GitHub App,
   and a check workflow and ruleset on your fork that gate the merge
 
@@ -64,8 +65,8 @@ flowchart LR
 
 1. `kafes task create` launches a container and clones your fork into it.
 2. Model requests go through the host's OMP auth gateway. Pushes go through a
-   host proxy that signs them with one-hour GitHub App tokens, to a separate
-   kafes fork.
+   host proxy that authenticates them with one-hour GitHub App tokens, to a
+   separate kafes fork.
 3. `kafes task delete` revokes all credentials, removes the container and
    prints the PR link.
 4. A `pull_request_target` check on your fork rejects anything but plain text
@@ -135,15 +136,15 @@ Full guide: [docs/usage.md](docs/usage.md).
 
 ## Security
 
-| Control         | Mechanism                                                                                                                         |
-|-----------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| Control         | Mechanism                                                                                                                           |
+|-----------------|-------------------------------------------------------------------------------------------------------------------------------------|
 | Isolation       | One Workshop container per task, removed on delete; LXD ACL blocks RFC 1918, CGNAT, link-local and ULA; exactly two tunnels allowed |
-| Model access    | Revocable gateway token; provider credentials stay with the host's auth broker                                                    |
-| GitHub access   | Host proxy holds the App key; one-hour tokens, one repository, `contents: write` only                                             |
-| Host GitHub use | kafes reads GitHub anonymously and holds no user credentials                                                                      |
-| Edit rules      | Path allowlist; rejects dotfiles, binaries, symlinks, mode changes, hidden characters, encoded blobs and foreign commits           |
-| Merge           | Ruleset requires the check from GitHub Actions; merge only while the PR head is the commit `task delete` printed                  |
-| Cleanup         | `task stop` and `task delete` revoke credentials first, even with damaged state                                                   |
+| Model access    | Revocable gateway token; provider credentials stay with the host's auth broker                                                      |
+| GitHub access   | Host proxy holds the App key; one-hour tokens, one repository, `contents: write` only                                               |
+| Host GitHub use | kafes reads GitHub anonymously and holds no user credentials                                                                        |
+| Edit rules      | Path allowlist; rejects dotfiles, binaries, symlinks, mode changes, hidden characters, encoded blobs and foreign commits            |
+| Merge           | Ruleset requires the check from GitHub Actions; merge only while the PR head is the commit `task delete` printed                    |
+| Cleanup         | `task stop` and `task delete` revoke credentials; `task delete` does so first, even with damaged state                              |
 
 Not covered: logic review, homoglyphs, code that passes review and runs during
 QA. See [Residual risks](docs/design.md#residual-risks).

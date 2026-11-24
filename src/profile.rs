@@ -197,7 +197,10 @@ impl Profile {
             ("description", description),
             ("node SDK", w.node.clone()),
             ("apt packages", none(&w.apt)),
-            ("install", p.install.clone().unwrap_or_else(|| "none".into())),
+            (
+                "install",
+                p.install.clone().unwrap_or_else(|| "none".into()),
+            ),
             ("install env", none(&env)),
         ]);
         ui::list("setup commands", &w.setup);
